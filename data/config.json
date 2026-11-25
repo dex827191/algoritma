@@ -1,0 +1,165 @@
+{
+  "log": {
+    "access": "none",
+    "error": "/tmp/xray-error.log",
+    "loglevel": "warning"
+  },
+  "inbounds": [
+    {
+      "listen": "127.0.0.1",
+      "port": 18080,
+      "protocol": "vless",
+      "settings": {
+        "clients": [],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "security": "none",
+        "xhttpSettings": {
+          "path": "/xhttp",
+          "mode": "auto"
+        },
+        "method": "xhttp"
+      },
+      "tag": "vless-xhttp"
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": 18081,
+      "protocol": "vless",
+      "settings": {
+        "clients": [],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "security": "none",
+        "httpupgradeSettings": {
+          "path": "/httpup"
+        },
+        "method": "httpupgrade"
+      },
+      "tag": "vless-httpupgrade"
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": 18082,
+      "protocol": "vless",
+      "settings": {
+        "clients": [],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "security": "none",
+        "wsSettings": {
+          "path": "/vless"
+        },
+        "method": "websocket"
+      },
+      "tag": "vless-ws"
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": 18083,
+      "protocol": "vmess",
+      "settings": {
+        "clients": []
+      },
+      "streamSettings": {
+        "security": "none",
+        "xhttpSettings": {
+          "path": "/vmess-xhttp",
+          "mode": "auto"
+        },
+        "method": "xhttp"
+      },
+      "tag": "vmess-xhttp"
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": 18084,
+      "protocol": "vmess",
+      "settings": {
+        "clients": []
+      },
+      "streamSettings": {
+        "security": "none",
+        "httpupgradeSettings": {
+          "path": "/vmess-httpup"
+        },
+        "method": "httpupgrade"
+      },
+      "tag": "vmess-httpupgrade"
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": 18085,
+      "protocol": "vmess",
+      "settings": {
+        "clients": []
+      },
+      "streamSettings": {
+        "security": "none",
+        "wsSettings": {
+          "path": "/vmess"
+        },
+        "method": "websocket"
+      },
+      "tag": "vmess-ws"
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": 18086,
+      "protocol": "trojan",
+      "settings": {
+        "clients": []
+      },
+      "streamSettings": {
+        "security": "none",
+        "xhttpSettings": {
+          "path": "/trojan-xhttp",
+          "mode": "auto"
+        },
+        "method": "xhttp"
+      },
+      "tag": "trojan-xhttp"
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": 18087,
+      "protocol": "trojan",
+      "settings": {
+        "clients": []
+      },
+      "streamSettings": {
+        "security": "none",
+        "httpupgradeSettings": {
+          "path": "/trojan-httpup"
+        },
+        "method": "httpupgrade"
+      },
+      "tag": "trojan-httpupgrade"
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": 18088,
+      "protocol": "trojan",
+      "settings": {
+        "clients": []
+      },
+      "streamSettings": {
+        "security": "none",
+        "wsSettings": {
+          "path": "/trojan"
+        },
+        "method": "websocket"
+      },
+      "tag": "trojan-ws"
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "tag": "direct"
+    }
+  ]
+}
