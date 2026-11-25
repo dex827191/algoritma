@@ -14,10 +14,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Prepare lowercase image name
+      - name: Prepare repository-based image name
         id: prep
         run: |
-          IMG="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/web"
+          IMG="ghcr.io/${GITHUB_REPOSITORY,,}"
           echo "image=$IMG" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GitHub Container Registry
