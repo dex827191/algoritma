@@ -1,327 +1,65 @@
-
 #!/bin/sh
 set -eu
+cd /app
+mkdir -p /etc/dropbear /etc/stunnel /etc/ssh-sni /var/run/dropbear
 
-# =========================================================
-# ENVIRONMENT
-# =========================================================
-PORT="${PORT:-8080}"
-SSL_INTERNAL_PORT="${SSL_INTERNAL_PORT:-2443}"
-WS_INTERNAL_PORT="${WS_INTERNAL_PORT:-8880}"
-DATA_DIR="${DATA_DIR:-/data}"
-DOMAIN="${DOMAIN:-}"
-export DOMAIN
-
-umask 077
-
-ulimit -n 65535 2>/dev/null || true
-
-echo "================================================="
-echo "       PREMIUM SSH SERVER DROPBEAR modssh3"
-echo "================================================="
-
-
-# =========================================================
-# REQUIRED DIRECTORIES
-# =========================================================
-mkdir -p \
-    "$DATA_DIR" \
-    /etc/dropbear \
-    /var/run/dropbear \
-    /etc/stunnel \
-    /var/run/stunnel \
-    /tmp
-
-
-# =========================================================
-# CHECK REQUIRED COMMANDS
-# =========================================================
-for cmd in \
-    jq \
-    openssl \
-    nginx \
-    dropbear \
-    dropbearkey \
-    useradd
-do
-    if ! command -v "$cmd" >/dev/null 2>&1; then
-        echo "[ERROR] Command tidak ditemukan: $cmd"
-        exit 1
-    fi
-done
-
-
-# =========================================================
-# CHECK REQUIRED BINARIES
-# =========================================================
-for file in \
-    /usr/local/bin/mux \
-    /usr/local/bin/ssh-wsproxy \
-    /usr/local/bin/xray/xray \
-    /usr/local/bin/badvpn-udpgw
-do
-    if [ ! -x "$file" ]; then
-        echo "[ERROR] Binary tidak ditemukan: $file"
-        exit 1
-    fi
-done
-
-
-# =========================================================
-# PERSISTENT CONFIGURATION
-# =========================================================
-echo "[*] Memeriksa konfigurasi..."
-
-if [ ! -s "$DATA_DIR/config.json" ]; then
-    cp /app/config.json "$DATA_DIR/config.json"
-fi
-
-if [ ! -s "$DATA_DIR/ssh-users.json" ]; then
-    printf '[]\n' > "$DATA_DIR/ssh-users.json"
-fi
-
-if [ ! -s "$DATA_DIR/xray-accounts.json" ]; then
-    printf '[]\n' > "$DATA_DIR/xray-accounts.json"
-fi
-
-
-# =========================================================
-# VALIDATE JSON
-# =========================================================
-jq -e 'type == "object"' \
-    "$DATA_DIR/config.json" >/dev/null
-
-jq -e 'type == "array"' \
-    "$DATA_DIR/ssh-users.json" >/dev/null
-
-jq -e 'type == "array"' \
-    "$DATA_DIR/xray-accounts.json" >/dev/null
-
-
-# =========================================================
-# RESTORE SSH USERS
-# =========================================================
-echo "[*] Memulihkan akun SSH..."
-
-jq -c '.[]' "$DATA_DIR/ssh-users.json" |
-while IFS= read -r item; do
-
-    name="$(printf '%s' "$item" | jq -r '.username // empty')"
-    hash="$(printf '%s' "$item" | jq -r '.password_hash // empty')"
-
-    case "$name" in
-        ''|*[!a-zA-Z0-9_-]*)
-            continue
-            ;;
-    esac
-
-    if [ "${#name}" -gt 32 ]; then
-        continue
-    fi
-
-    if [ -n "$hash" ] && ! id "$name" >/dev/null 2>&1; then
-        echo "[*] Membuat user: $name"
-        useradd -m -s /bin/bash -p "$hash" "$name" || true
-    fi
-
-done
-
-
-# =========================================================
-# DROPBEAR BANNER
-# =========================================================
-cat > /etc/dropbear_banner <<'EOF'
+cat > /etc/dropbear/dropbear_banner <<'EOF'
 =================================================
-                  SELAMAT MENIKMATI
-             PREMIUM SSH SERVER DROPBEAR modssh3
+              SSH WEBSOCKET SERVER
+          Dropbear SSH - Managed Panel
 =================================================
-       Dilarang Torrent / DDOS / Hacking!
-                 Powered By: dedefathu
+Gunakan layanan secara legal dan bertanggung jawab.
 =================================================
 EOF
 
-
-# =========================================================
-# DROPBEAR HOST KEY
-# =========================================================
-if [ ! -s /etc/dropbear/dropbear_ed25519_host_key ]; then
-
-    echo "[*] Membuat Dropbear host key..."
-
-    dropbearkey \
-        -t ed25519 \
-        -f /etc/dropbear/dropbear_ed25519_host_key
-
+# SSH daemon hanya listen di loopback; akses publik dipilah oleh mux.py.
+if ! id "${SSH_USER:-}" >/dev/null 2>&1 && [ -n "${SSH_USER:-}" ] && [ -n "${SSH_PASSWORD:-}" ]; then
+  python3 /usr/local/bin/addssh "$SSH_USER" "$SSH_PASSWORD" "${SSH_EXPIRE_DAYS:-0}" || true
 fi
+/usr/sbin/dropbear -E -F -p "127.0.0.1:${SSH_TARGET_PORT:-22}" \
+  -b /etc/dropbear/dropbear_banner -W 65536 >/tmp/dropbear.log 2>&1 &
 
-chmod 600 /etc/dropbear/dropbear_ed25519_host_key
-
-
-# =========================================================
-# STUNNEL CERTIFICATE
-# =========================================================
-echo "[*] Memeriksa sertifikat Stunnel..."
-
-mkdir -p /etc/stunnel /var/run/stunnel
-
-if [ ! -s /etc/stunnel/stunnel.pem ]; then
-
-    openssl req \
-        -new \
-        -newkey rsa:2048 \
-        -days 365 \
-        -nodes \
-        -x509 \
-        -subj "/C=ID/O=SSH-Proxy/CN=localhost" \
-        -keyout /tmp/stunnel.key \
-        -out /tmp/stunnel.crt \
-        >/dev/null 2>&1
-
-    cat \
-        /tmp/stunnel.key \
-        /tmp/stunnel.crt \
-        > /etc/stunnel/stunnel.pem
-
-    chmod 600 /etc/stunnel/stunnel.pem
-
-    rm -f /tmp/stunnel.key /tmp/stunnel.crt
-
-fi
-
-
-# =========================================================
-# DROPBEAR SSH INTERNAL
-# =========================================================
-echo "[*] Memulai Dropbear SSH..."
-
-dropbear \
-    -F \
-    -E \
-    -p 127.0.0.1:22 \
-    -b /etc/dropbear_banner \
-    -r /etc/dropbear/dropbear_ed25519_host_key \
-    -W 65536 &
-
-
-# =========================================================
-# STUNNEL SSH SSL
-# =========================================================
-echo "[*] Mengonfigurasi Stunnel..."
-
+# TLS-over-SSH backend (stunnel -> Dropbear).
+openssl req -new -newkey rsa:2048 -days 3650 -nodes -x509 \
+  -subj "/C=ID/O=SSH-Panel/CN=localhost" \
+  -keyout /etc/stunnel/stunnel.pem -out /etc/stunnel/stunnel.pem >/dev/null 2>&1
+chmod 600 /etc/stunnel/stunnel.pem
 cat > /etc/stunnel/stunnel.conf <<EOF
 foreground = yes
 pid = /tmp/stunnel.pid
-
+debug = 4
 [ssh-tls]
-accept = 127.0.0.1:${SSL_INTERNAL_PORT}
-connect = 127.0.0.1:22
+accept = 127.0.0.1:${SSL_INTERNAL_PORT:-2443}
+connect = 127.0.0.1:${SSH_TARGET_PORT:-22}
 cert = /etc/stunnel/stunnel.pem
 EOF
+stunnel /etc/stunnel/stunnel.conf >/tmp/stunnel.log 2>&1 &
 
-if command -v stunnel >/dev/null 2>&1; then
-    STUNNEL_BIN="stunnel"
-elif command -v stunnel4 >/dev/null 2>&1; then
-    STUNNEL_BIN="stunnel4"
-else
-    echo "[ERROR] Stunnel tidak ditemukan"
-    exit 1
-fi
-
-"$STUNNEL_BIN" /etc/stunnel/stunnel.conf \
-    >/dev/stdout 2>&1 &
-
-
-# =========================================================
-# SSH WEBSOCKET
-# =========================================================
-echo "[*] Memulai SSH WebSocket..."
-
-WS_PORT="$WS_INTERNAL_PORT" \
-SSH_TARGET="127.0.0.1:22" \
-/usr/local/bin/ssh-wsproxy &
-
-
-# =========================================================
-# NGINX
-# =========================================================
-echo "[*] Memeriksa konfigurasi Nginx..."
-
-nginx -t -c /etc/nginx/nginx.conf
-
-echo "[*] Memulai Nginx..."
-
-nginx -c /etc/nginx/nginx.conf
-
-
-# =========================================================
-# XRAY CORE
-# =========================================================
-echo "[*] Memulai Xray Core..."
-
+# Xray + Nginx remain independent from SSH transport.
+nginx -c /app/nginx.conf
 (
-    while :; do
+  while :; do
+    xray run -c /app/config.json
+    sleep 2
+  done
+) >/tmp/xray.log 2>&1 &
 
-        echo "[*] Menjalankan Xray..."
+# Embedded HTML panel + SSH WS transport + unchanged Xray wrapper on private ports.
+python3 /app/app.py >/tmp/app.log 2>&1 &
+WS_PORT="${WS_INTERNAL_PORT:-8880}" WS_TARGET_HOST=127.0.0.1 \
+  WS_TARGET_PORT="${SSH_TARGET_PORT:-22}" python3 /app/ws-proxy.py >/tmp/ws-proxy.log 2>&1 &
+PORT="${XRAY_WRAPPER_PORT:-8082}" python3 /app/proxy_wrapper.py >/tmp/xray-wrapper.log 2>&1 &
 
-        /usr/local/bin/xray/xray \
-            run \
-            -c "$DATA_DIR/config.json"
-
-        echo "[WARNING] Xray berhenti. Restart dalam 3 detik..."
-
-        sleep 3
-
-    done
-) &
-
-
-# =========================================================
-# BADVPN UDPGW
-# =========================================================
-echo "[*] Memulai BadVPN UDPGW Engine di Port Lokal 7300..."
-
-/usr/local/bin/badvpn-udpgw \
-    --listen-addr 127.0.0.1:7300 \
-    --max-clients 500 \
-    --max-connections-for-client 20 \
-    --loglevel warning &
-
-
-# =========================================================
-# CLOUDFLARE TUNNEL
-# =========================================================
-if [ -n "${CF_TUNNEL_TOKEN:-}" ]; then
-
-    echo "[*] Memulai Cloudflare Tunnel..."
-
-    /usr/local/bin/cloudflared \
-        tunnel \
-        --no-autoupdate \
-        run \
-        --token "$CF_TUNNEL_TOKEN" &
-
-else
-
-    echo "[INFO] CF_TUNNEL_TOKEN tidak tersedia. Tunnel dilewati."
-
+if [ -n "${CF_TOKEN:-}" ]; then
+  cloudflared tunnel --no-autoupdate run --token "$CF_TOKEN" >/tmp/cloudflared.log 2>&1 &
 fi
 
-
-# =========================================================
-# PUBLIC MULTIPLEXER
-# =========================================================
-echo "================================================="
-echo "[*] Memulai Multiplexer Publik"
-echo "[*] Public Port: ${PORT}"
-echo "[*] SSL Internal: ${SSL_INTERNAL_PORT}"
-echo "[*] WS Internal: ${WS_INTERNAL_PORT}"
-echo "================================================="
-
+sleep 2
 exec env \
-    PORT="$PORT" \
-    SSL_TARGET_HOST="127.0.0.1" \
-    SSL_TARGET_PORT="$SSL_INTERNAL_PORT" \
-    WS_MUX_TARGET_HOST="127.0.0.1" \
-    WS_MUX_TARGET_PORT="$WS_INTERNAL_PORT" \
-    /usr/local/bin/mux
-    
+  PORT="${PORT:-8080}" \
+  SSL_TARGET_HOST=127.0.0.1 SSL_TARGET_PORT="${SSL_INTERNAL_PORT:-2443}" \
+  WS_MUX_TARGET_HOST=127.0.0.1 WS_MUX_TARGET_PORT="${WS_INTERNAL_PORT:-8880}" \
+  SSH_TARGET_HOST=127.0.0.1 SSH_TARGET_PORT="${SSH_TARGET_PORT:-22}" \
+  XRAY_TARGET_HOST=127.0.0.1 XRAY_TARGET_PORT="${XRAY_WRAPPER_PORT:-8082}" \
+  APP_TARGET_HOST=127.0.0.1 APP_TARGET_PORT=2053 \
+  python3 /app/mux.py
