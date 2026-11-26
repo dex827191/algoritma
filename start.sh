@@ -31,7 +31,7 @@ pkill -9 -x nginx 2>/dev/null || true
 pkill -9 -x cloudflared 2>/dev/null || true
 pkill -9 -x xray 2>/dev/null || true
 if command -v fuser >/dev/null 2>&1; then
-  for port in 8443 2443 8880 8881 8080 8081 8082 80 22 7300; do
+  for port in 8443 2443 8880 8881 8080 8081 8082 3001 80 22 7300; do
     fuser -k "${port}/tcp" 2>/dev/null || true
   done
 fi
@@ -221,7 +221,7 @@ fi
 # =================================================================
 # Panel/API and Go TCP entrypoint
 # =================================================================
-PANEL_PORT="${PANEL_PORT:-3001}" node /app/server.cjs >/tmp/panel-api.log 2>&1 &
+PANEL_PORT=3001 node /app/server.cjs >/tmp/panel-api.log 2>&1 &
 sleep 1
 if ! kill -0 "$!" 2>/dev/null; then
   echo "[FATAL] Panel API gagal start" >&2
@@ -233,5 +233,5 @@ if [[ ! -x "$WRAPPER_BIN" ]]; then
   echo "[FATAL] Proxy wrapper tidak ditemukan: $WRAPPER_BIN" >&2
   exit 1
 fi
-echo "[*] Starting Go proxy wrapper (UI/API -> Node 127.0.0.1:3001, SSH/Xray paths -> Nginx 127.0.0.1:8081)..."
+echo "[*] Starting Go TCP relay on Railway PORT -> Nginx 127.0.0.1:8081 (UI -> Node 3001; SSH/Xray -> internal services)..."
 exec "$WRAPPER_BIN"

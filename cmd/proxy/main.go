@@ -1,52 +1,53 @@
 package main
 
 import (
+	"io"
 	"log"
-	"net/http"
-	"net/http/httputil"
-	"net/url"
+	"net"
 	"os"
-	"strings"
 	"time"
 )
 
 const (
 	defaultPublicPort = "3000"
-	panelHost         = "127.0.0.1"
-	panelPort         = "3001"
-	nginxHost         = "127.0.0.1"
-	nginxPort         = "8081"
+	nginxAddress      = "127.0.0.1:8081"
 )
 
-var nginxPaths = []string{
-	"/ssh-ws", "/ssh",
-	"/xhttp", "/httpup", "/vless",
-	"/vmess-xhttp", "/vmess-httpup", "/vmess",
-	"/trojan-xhttp", "/trojan-httpup", "/trojan",
-}
+func relay(client, upstream net.Conn) {
+	done := make(chan struct{}, 2)
 
-func hasPathPrefix(path string, prefixes []string) bool {
-	for _, prefix := range prefixes {
-		if path == prefix || strings.HasPrefix(path, prefix+"/") || strings.HasPrefix(path, prefix+"?") {
-			return true
+	// Copy every byte unchanged in both directions. Nginx handles HTTP
+	// routing for the UI, SSH WebSocket, and Xray transports.
+	go func() {
+		_, _ = io.Copy(upstream, client)
+		if conn, ok := upstream.(*net.TCPConn); ok {
+			_ = conn.CloseWrite()
 		}
-	}
-	return false
+		done <- struct{}{}
+	}()
+
+	go func() {
+		_, _ = io.Copy(client, upstream)
+		if conn, ok := client.(*net.TCPConn); ok {
+			_ = conn.CloseWrite()
+		}
+		done <- struct{}{}
+	}()
+
+	<-done
+	<-done
 }
 
-func proxyTo(target string) *httputil.ReverseProxy {
-	u, err := url.Parse(target)
+func handleClient(client net.Conn) {
+	defer client.Close()
+
+	upstream, err := net.DialTimeout("tcp", nginxAddress, 10*time.Second)
 	if err != nil {
-		log.Fatalf("invalid upstream %q: %v", target, err)
+		log.Printf("connect nginx %s: %v", nginxAddress, err)
+		return
 	}
-	p := httputil.NewSingleHostReverseProxy(u)
-	p.FlushInterval = -1
-	p.ErrorLog = log.Default()
-	p.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
-		log.Printf("upstream %s error for %s: %v", target, r.URL.Path, err)
-		http.Error(w, "upstream temporarily unavailable", http.StatusBadGateway)
-	}
-	return p
+	defer upstream.Close()
+	relay(client, upstream)
 }
 
 func main() {
@@ -54,36 +55,21 @@ func main() {
 	if publicPort == "" {
 		publicPort = defaultPublicPort
 	}
+	listenAddr := net.JoinHostPort("0.0.0.0", publicPort)
 
-	panelProxy := proxyTo("http://" + panelHost + ":" + panelPort)
-	nginxProxy := proxyTo("http://" + nginxHost + ":" + nginxPort)
-
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/healthz" {
-			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte("ok\n"))
-			return
-		}
-
-		if hasPathPrefix(r.URL.Path, nginxPaths) {
-			nginxProxy.ServeHTTP(w, r)
-			return
-		}
-
-		// All normal web traffic (UI, assets, login and /api/*) goes to Node.
-		panelProxy.ServeHTTP(w, r)
-	})
-
-	server := &http.Server{
-		Addr:              "0.0.0.0:" + publicPort,
-		Handler:           handler,
-		ReadHeaderTimeout: 15 * time.Second,
-		IdleTimeout:       90 * time.Second,
+	listener, err := net.Listen("tcp", listenAddr)
+	if err != nil {
+		log.Fatalf("listen %s: %v", listenAddr, err)
 	}
+	defer listener.Close()
 
-	log.Printf("Go gateway listening on 0.0.0.0:%s; UI/API -> %s:%s; tunnel paths -> %s:%s", publicPort, panelHost, panelPort, nginxHost, nginxPort)
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("gateway listen: %v", err)
+	log.Printf("Go transparent TCP relay listening on %s -> Nginx %s", listenAddr, nginxAddress)
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			log.Printf("accept: %v", err)
+			continue
+		}
+		go handleClient(conn)
 	}
 }
