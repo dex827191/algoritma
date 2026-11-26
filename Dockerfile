@@ -21,60 +21,6 @@ RUN curl -fsSL https://github.com/ambrop72/badvpn/archive/refs/tags/1.999.130.ta
  && make -j"$(nproc)" badvpn-udpgw
 
 # =================================================================
-# STAGE 2: Build frontend React static assets
-# =================================================================
-FROM node:20-slim AS frontend
-WORKDIR /web
-
-COPY package.json package-lock.json* ./
-
-# ── Install deps dengan fallback npm ci → npm install ──
-RUN --mount=type=cache,target=/root/.npm \
-    set -e; \
-    if [ -f package-lock.json ]; then \
-        echo "[FE] Mencoba npm ci..."; \
-        if npm ci --include=dev --no-audit --no-fund; then \
-            echo "[FE] ✅ npm ci OK"; \
-        else \
-            echo "[FE] ⚠️  npm ci gagal, fallback npm install..."; \
-            rm -f package-lock.json; \
-            npm install --include=dev --no-audit --no-fund; \
-        fi; \
-    else \
-        echo "[FE] Tidak ada lock, pakai npm install"; \
-        npm install --include=dev --no-audit --no-fund; \
-    fi
-
-COPY . .
-
-# ══════════════════════════════════════════════════════════════════
-# STEP 1: Build React menjadi file statis
-# ══════════════════════════════════════════════════════════════════
-RUN echo "════════ STEP 1: Vite build ════════" \
- && npm run build
-
-# ══════════════════════════════════════════════════════════════════
-# STEP 2: Verify hasil vite build
-# ══════════════════════════════════════════════════════════════════
-RUN echo "════════ STEP 2: Verify dist ════════" \
- && echo "--- ls dist/ ---" \
- && ls -la dist/ \
- && echo "--- ls dist/assets/ ---" \
- && ls -la dist/assets/ \
- && echo "--- test dist/index.html ---" \
- && test -f dist/index.html \
- || (echo "❌ dist/index.html TIDAK ADA — vite build gagal" && exit 1)
-
-# =================================================================
-# STEP 3: Inline frontend assets (keep inline-html.mjs)
-# =================================================================
-RUN echo "════════ STEP 3: Inline HTML ════════" \
- && test -f scripts/inline-html.mjs \
- && node scripts/inline-html.mjs \
- && test -f frontend.html.cjs \
- && echo "✅ frontend.html.cjs generated"
-
-# =================================================================
 # STAGE 3: Go binaries (proxy wrapper + SSH WebSocket)
 # =================================================================
 FROM --platform=$BUILDPLATFORM golang:1.22-bookworm AS go-builder
@@ -100,8 +46,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # =================================================================
 FROM ubuntu:22.04 AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
-ENV NODE_ENV=production
-ENV PANEL_PORT=3001
+ENV PANEL_PORT=3000
 WORKDIR /app
 
 # ── Paket sistem ──
@@ -122,13 +67,9 @@ RUN rm -rf /var/lib/apt/lists/* \
         curl \
         wget \
         unzip \
+        python3 \
  && rm -rf /var/lib/apt/lists/*
 
-
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
- && apt-get install -y --no-install-recommends nodejs \
- && apt-get clean \
- && rm -rf /var/lib/apt/lists/*
 
 ARG TARGETARCH
 RUN case "${TARGETARCH}" in \
@@ -172,32 +113,11 @@ RUN mkdir -p /etc/dropbear && \
     && chmod 600 /etc/dropbear/dropbear_rsa_host_key \
     || (echo "❌ Gagal membuat dropbear host key!" && exit 1)
 
-# ── Node deps panel ──
-COPY package.json package-lock.json* ./
-
-RUN --mount=type=cache,target=/root/.npm \
-    set -e; \
-    if [ -f package-lock.json ]; then \
-        echo "[RT] Mencoba npm ci --omit=dev..."; \
-        if npm ci --omit=dev --no-audit --no-fund; then \
-            echo "[RT] ✅ npm ci OK"; \
-        else \
-            echo "[RT] ⚠️  npm ci gagal, fallback npm install"; \
-            rm -f package-lock.json; \
-            npm install --omit=dev --no-audit --no-fund; \
-        fi; \
-    else \
-        npm install --omit=dev --no-audit --no-fund; \
-    fi
-
-# ── App code ──
-COPY server.cjs ./server.cjs
-COPY --from=frontend /web/dist ./dist
-COPY --from=frontend /web/frontend.html.cjs ./frontend.html.cjs
-COPY --from=frontend /web/scripts/inline-html.mjs ./scripts/inline-html.mjs
-COPY start.sh ./
-
+# ── Python panel ──
+COPY app.py ./app.py
+COPY index.html ./index.html
 COPY data/ ./data/
+COPY start.sh ./
 
 # ── Nginx ──
 RUN rm -f /etc/nginx/sites-enabled/default /etc/nginx/conf.d/*.conf
@@ -213,5 +133,5 @@ RUN ln -sf /dev/stdout /var/log/nginx/access.log \
 
 RUN chmod +x /app/start.sh /usr/local/bin/proxy-wrapper
 
-EXPOSE 3000 3001 8081 8880 7300
+EXPOSE 8080 8081 3000 8880 7300
 CMD ["bash", "/app/start.sh"]

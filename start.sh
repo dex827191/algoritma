@@ -23,7 +23,7 @@ BANNER_FILE="/etc/app_motd"
 # Cleanup proses sisa (hanya proses milik stack ini)
 # =================================================================
 echo "[*] Cleanup..."
-pkill -9 -f "^node /app/server.cjs$" 2>/dev/null || true
+pkill -9 -f "^python3 /app/app.py$" 2>/dev/null || true
 pkill -9 -x stream-worker 2>/dev/null || true
 pkill -9 -x net-worker 2>/dev/null || true
 pkill -9 -x svc-helper 2>/dev/null || true
@@ -31,7 +31,7 @@ pkill -9 -x nginx 2>/dev/null || true
 pkill -9 -x cloudflared 2>/dev/null || true
 pkill -9 -x xray 2>/dev/null || true
 if command -v fuser >/dev/null 2>&1; then
-  for port in 8443 2443 8880 8881 8080 8081 8082 3001 80 22 7300; do
+  for port in 8443 2443 8880 8881 8080 8081 8082 80 22 7300; do
     fuser -k "${port}/tcp" 2>/dev/null || true
   done
 fi
@@ -204,7 +204,7 @@ if ! pgrep -x nginx >/dev/null 2>&1; then
 fi
 
 # =================================================================
-# Xray — independent supervisor; server.cjs updates config then restarts it
+# Xray — independent supervisor; app.py updates config then restarts it
 # =================================================================
 XRAY_CONFIG="${XRAY_CONFIG:-/app/data/config.json}"
 if [[ ! -f "$XRAY_CONFIG" ]]; then
@@ -221,7 +221,7 @@ fi
 # =================================================================
 # Panel/API and Go TCP entrypoint
 # =================================================================
-PANEL_PORT=3001 node /app/server.cjs >/tmp/panel-api.log 2>&1 &
+PANEL_PORT="${PANEL_PORT:-3000}" python3 /app/app.py >/tmp/panel-api.log 2>&1 &
 sleep 1
 if ! kill -0 "$!" 2>/dev/null; then
   echo "[FATAL] Panel API gagal start" >&2
@@ -233,5 +233,5 @@ if [[ ! -x "$WRAPPER_BIN" ]]; then
   echo "[FATAL] Proxy wrapper tidak ditemukan: $WRAPPER_BIN" >&2
   exit 1
 fi
-echo "[*] Starting Go TCP relay on Railway PORT -> Nginx 127.0.0.1:8081 (UI -> Node 3001; SSH/Xray -> internal services)..."
+echo "[*] Starting Go proxy wrapper (HTTP/UI -> Python 127.0.0.1:3000, Xray -> Nginx 127.0.0.1:8081)..."
 exec "$WRAPPER_BIN"
