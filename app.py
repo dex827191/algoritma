@@ -4,6 +4,13 @@ BASE=pathlib.Path(__file__).resolve().parent
 DATA=pathlib.Path(os.getenv('DATA_DIR') or os.getenv('FILE_PATH') or BASE/'data'); DATA.mkdir(parents=True,exist_ok=True)
 PORT=int(os.getenv('PANEL_PORT','3000')); DB=DATA/'ssh_accounts.json'; XDB=DATA/'xray_accounts.json'; XCFG=pathlib.Path(os.getenv('XRAY_CONFIG',DATA/'config.json')); ADMIN=pathlib.Path('/tmp/admin_pass.txt'); WS=pathlib.Path('/tmp/ws_proxy_config.json'); SYS=pathlib.Path('/tmp/system_config.json')
 RESERVED=set('root daemon bin sys sync games man lp mail news uucp proxy www-data backup list irc gnats nobody ubuntu sshd dropbear stunnel'.split())
+def request_domain(handler):
+ host=(handler.headers.get('Host') or '').strip()
+ if host:
+  # Host may include a port; handle bracketed IPv6 conservatively.
+  if host.startswith('[') and ']' in host: return host[1:host.index(']')]
+  return host.rsplit(':',1)[0] if host.count(':')==1 else host
+ return os.getenv('DOMAIN','').strip()
 def readj(p,d):
  try:return json.loads(p.read_text())
  except:return d
@@ -102,22 +109,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
  def do_GET(self):
   u=urllib.parse.urlsplit(self.path);q=urllib.parse.parse_qs(u.query);g=lambda k,d='':q.get(k,[d])[0]
   if u.path=='/healthz':return self.sendj({'status':'ok'})
-  if u.path=='/__info':return self.sendj({'uuid':(DATA/'uuid.txt').read_text().strip() if (DATA/'uuid.txt').exists() else '', 'domain':os.getenv('DOMAIN',self.headers.get('Host','')),'paths':{'vless':'/vless','vmess':'/vmess','trojan':'/trojan'},'xray_accounts':len(xdb())})
-  if u.path=='/api/setup-pass':
-   cur=admin(); pw=g('pass').strip()
-   if cur and g('old_pass').strip()!=cur:return self.sendj({'status':'error','message':'Password admin lama salah.'})
-   if len(pw)<4:return self.sendj({'status':'error','message':'Password minimal 4 karakter.'})
-   ADMIN.write_text(pw);os.chmod(ADMIN,0o600);return self.sendj({'status':'success','message':'Password admin berhasil disimpan.'})
-  if u.path=='/api/login':
-   if not admin():return self.sendj({'status':'not_configured','message':'Password admin belum dibuat.'})
-   return self.sendj({'status':'success','token':g('pass')} if verify(g('pass')) else {'status':'error','message':'Password salah.'})
+  if u.path=='/__info':return self.sendj({'uuid':(DATA/'uuid.txt').read_text().strip() if (DATA/'uuid.txt').exists() else '', 'domain':request_domain(self),'paths':{'vless':'/vless','vmess':'/vmess','trojan':'/trojan'},'xray_accounts':len(xdb())})
   if u.path=='/api/list':return self.sendj(listssh())
   if u.path=='/api/add':return self.sendj(addssh(g('user'),g('pass'),self.client_address[0],self.headers.get('User-Agent','Unknown')))
   if u.path=='/api/delete':
-   if not verify(g('token')):return self.sendj({'status':'error','message':'Akses ditolak.'},403)
+   
    return self.sendj(delssh(g('user')))
   if u.path=='/api/xray/list':
-   if not verify(g('token')):return self.sendj({'status':'error','message':'Akses ditolak.'},403)
+   
    return self.sendj({'status':'success','total':len(xdb()),'accounts':xdb()})
   if u.path=='/api/stats':
    try:disk=shutil.disk_usage('/').used/shutil.disk_usage('/').total*100;disk=f'{disk:.0f}%'
@@ -128,7 +127,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
    try:
     lines=pathlib.Path('/proc/meminfo').read_text().splitlines(); vals={x.split(':')[0]:int(x.split()[1]) for x in lines}; total=vals['MemTotal']/1048576;used=(vals['MemTotal']-vals.get('MemAvailable',0))/1048576
    except:total=used=0
-   return self.sendj({'pass_configured':bool(admin()),'status':'ONLINE','domain':os.getenv('DOMAIN',self.headers.get('Host','')),'railway_public':os.getenv('RAILWAY_PUBLIC_DOMAIN','Tidak Aktif'),'railway_sni':(os.getenv('RAILWAY_TCP_PROXY_DOMAIN','')+':'+os.getenv('RAILWAY_TCP_PROXY_PORT','')) if os.getenv('RAILWAY_TCP_PROXY_DOMAIN') else 'Tidak Aktif','ws_proxy_cfg':readj(WS,{'sshPort':22,'keepAlive':15000,'maxBuffer':32768}),'sys_settings':readj(SYS,{'banner':'','enable_bbr':'true','udpgw_port':'7300','udpgw_max_clients':'1000'}),'cpu_model':platform.processor() or 'Unknown','ram_total':f'{total:.2f} GB','ram_used':f'{used:.2f} GB','disk_usage':disk,'uptime':f'{time.monotonic()/3600:.2f} Hours','ssh_online':str(active),'user_list_details':f'{active} koneksi SSH aktif' if active else 'Semua user offline'})
+   return self.sendj({'pass_configured':bool(admin()),'status':'ONLINE','domain':request_domain(self),'railway_public':os.getenv('RAILWAY_PUBLIC_DOMAIN','Tidak Aktif'),'railway_sni':(os.getenv('RAILWAY_TCP_PROXY_DOMAIN','')+':'+os.getenv('RAILWAY_TCP_PROXY_PORT','')) if os.getenv('RAILWAY_TCP_PROXY_DOMAIN') else 'Tidak Aktif','ws_proxy_cfg':readj(WS,{'sshPort':22,'keepAlive':15000,'maxBuffer':32768}),'sys_settings':readj(SYS,{'banner':'','enable_bbr':'true','udpgw_port':'7300','udpgw_max_clients':'1000'}),'cpu_model':platform.processor() or 'Unknown','ram_total':f'{total:.2f} GB','ram_used':f'{used:.2f} GB','disk_usage':disk,'uptime':f'{time.monotonic()/3600:.2f} Hours','ssh_online':str(active),'user_list_details':f'{active} koneksi SSH aktif' if active else 'Semua user offline'})
   if u.path=='/':
    try:b=(BASE/'index.html').read_bytes()
    except:b=b'<h1>index.html tidak ditemukan</h1>'
@@ -140,15 +139,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
  def do_POST(self):
   u=urllib.parse.urlsplit(self.path);b=self.body()
   if u.path in ('/api/xray/add','/api/xray/delete'):
-   if not verify(b.get('token')):return self.sendj({'status':'error','message':'Akses ditolak.'},403)
+   
    return self.sendj(xadd(str(b.get('name','')).strip()) if u.path.endswith('/add') else xdel(str(b.get('id',''))))
   if u.path=='/api/set-wsproxy':
-   if not verify(b.get('pass')):return self.sendj({'status':'error','message':'Akses ditolak.'},403)
+   
    try: vals={'sshPort':int(b.get('ssh_port',22)),'keepAlive':int(b.get('keep_alive',15000)),'maxBuffer':int(b.get('max_buffer',32768))};assert 1<=vals['sshPort']<=65535 and 1000<=vals['keepAlive']<=300000 and 4096<=vals['maxBuffer']<=1048576
    except:return self.sendj({'status':'error','message':'Pengaturan WSProxy tidak valid.'},400)
    writej(WS,vals);return self.sendj({'status':'success','message':'WSProxy dan SSH config tersimpan.'})
   if u.path=='/api/set-system':
-   if not verify(b.get('pass')):return self.sendj({'status':'error','message':'Akses ditolak.'},403)
+   
    s={'banner':b.get('banner',''),'enable_bbr':'false' if b.get('enable_bbr')=='false' else 'true','udpgw_port':str(b.get('udpgw_port','7300')),'udpgw_max_clients':str(b.get('udpgw_max_clients','1000'))};writej(SYS,s);return self.sendj({'status':'success','message':'Pengaturan tersimpan.'})
   self.sendj({'status':'error','message':'Not Found'},404)
  def log_message(self,*args):print('[PANEL]',*args)
