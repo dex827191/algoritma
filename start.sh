@@ -181,10 +181,27 @@ fi
 # Cloudflare Named Tunnel token
 # =================================================================
 CF_TUNNEL_TOKEN="${CF_TOKEN:-${TOKEN:-}}"
+# Bersihkan newline/spasi yang kadang ikut saat token ditempel ke environment.
+CF_TUNNEL_TOKEN="$(printf '%s' "$CF_TUNNEL_TOKEN" | tr -d '\\r\\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
 if [[ -n "$CF_TUNNEL_TOKEN" ]]; then
+  if [[ ! -x /usr/local/bin/cloudflared ]]; then
+    echo "[FATAL] cloudflared tidak ditemukan atau tidak executable." >&2
+    exit 1
+  fi
   printf '%s' "$CF_TUNNEL_TOKEN" > /tmp/zt_single_token.txt
-  /usr/local/bin/cloudflared tunnel run --no-autoupdate --token "$CF_TUNNEL_TOKEN" >/tmp/cloudflared.log 2>&1 &
+  chmod 600 /tmp/zt_single_token.txt
+  echo "[*] Menjalankan Cloudflare Named Tunnel..."
+  /usr/local/bin/cloudflared tunnel --no-autoupdate run --token "$CF_TUNNEL_TOKEN" >/tmp/cloudflared.log 2>&1 &
+  CF_PID=$!
+  sleep 3
+  if ! kill -0 "$CF_PID" 2>/dev/null; then
+    echo "[FATAL] cloudflared berhenti saat startup. Log terakhir:" >&2
+    tail -n 80 /tmp/cloudflared.log >&2 || true
+    exit 1
+  fi
+  echo "[*] cloudflared aktif (PID $CF_PID). Log: /tmp/cloudflared.log"
 else
+  echo "[WARN] CF_TOKEN/TOKEN kosong; Cloudflare Tunnel tidak dijalankan."
   rm -f /tmp/zt_single_token.txt 2>/dev/null || true
 fi
 
