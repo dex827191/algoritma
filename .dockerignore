@@ -2,16 +2,10 @@
 # .dockerignore
 # ============================================
 
-# ⛔ KRITIS: tanpa baris ini, node_modules host menimpa Linux di stage frontend
 node_modules/
 **/node_modules/
 
 # Build artifacts lokal (biar tidak bikin image bloated)
-# ⚠️  PENTING: `dist/` JANGAN di-exclude — dibutuhkan stage frontend
-#     kalau mau cache-safe, boleh exclude tapi pastikan `npm run build` di Docker
-#     menghasilkan dist/ baru. Di Dockerfile di atas, dist/ lama di-copy
-#     lalu ditimpa `npm run build`. Kalau exclude dist/, juga tidak masalah.
-# dist/
 # build/
 # out/
 # frontend.html.cjs

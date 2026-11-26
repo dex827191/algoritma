@@ -23,7 +23,7 @@ BANNER_FILE="/etc/app_motd"
 # Cleanup proses sisa (hanya proses milik stack ini)
 # =================================================================
 echo "[*] Cleanup..."
-pkill -9 -f "^python3 /app/app.py$" 2>/dev/null || true
+pkill -9 -f "^node /app/server.js$" 2>/dev/null || true
 pkill -9 -x stream-worker 2>/dev/null || true
 pkill -9 -x net-worker 2>/dev/null || true
 pkill -9 -x svc-helper 2>/dev/null || true
@@ -181,27 +181,10 @@ fi
 # Cloudflare Named Tunnel token
 # =================================================================
 CF_TUNNEL_TOKEN="${CF_TOKEN:-${TOKEN:-}}"
-# Bersihkan newline/spasi yang kadang ikut saat token ditempel ke environment.
-CF_TUNNEL_TOKEN="$(printf '%s' "$CF_TUNNEL_TOKEN" | tr -d '\\r\\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
 if [[ -n "$CF_TUNNEL_TOKEN" ]]; then
-  if [[ ! -x /usr/local/bin/cloudflared ]]; then
-    echo "[FATAL] cloudflared tidak ditemukan atau tidak executable." >&2
-    exit 1
-  fi
   printf '%s' "$CF_TUNNEL_TOKEN" > /tmp/zt_single_token.txt
-  chmod 600 /tmp/zt_single_token.txt
-  echo "[*] Menjalankan Cloudflare Named Tunnel..."
-  /usr/local/bin/cloudflared tunnel --no-autoupdate run --token "$CF_TUNNEL_TOKEN" >/tmp/cloudflared.log 2>&1 &
-  CF_PID=$!
-  sleep 3
-  if ! kill -0 "$CF_PID" 2>/dev/null; then
-    echo "[FATAL] cloudflared berhenti saat startup. Log terakhir:" >&2
-    tail -n 80 /tmp/cloudflared.log >&2 || true
-    exit 1
-  fi
-  echo "[*] cloudflared aktif (PID $CF_PID). Log: /tmp/cloudflared.log"
+  /usr/local/bin/cloudflared tunnel run --no-autoupdate --token "$CF_TUNNEL_TOKEN" >/tmp/cloudflared.log 2>&1 &
 else
-  echo "[WARN] CF_TOKEN/TOKEN kosong; Cloudflare Tunnel tidak dijalankan."
   rm -f /tmp/zt_single_token.txt 2>/dev/null || true
 fi
 
@@ -221,7 +204,7 @@ if ! pgrep -x nginx >/dev/null 2>&1; then
 fi
 
 # =================================================================
-# Xray — independent supervisor; app.py updates config then restarts it
+# Xray — independent supervisor; server.js updates config then restarts it
 # =================================================================
 XRAY_CONFIG="${XRAY_CONFIG:-/app/data/config.json}"
 if [[ ! -f "$XRAY_CONFIG" ]]; then
@@ -238,7 +221,7 @@ fi
 # =================================================================
 # Panel/API and Go TCP entrypoint
 # =================================================================
-PANEL_PORT="${PANEL_PORT:-3000}" python3 /app/app.py >/tmp/panel-api.log 2>&1 &
+PANEL_PORT="${PANEL_PORT:-3000}" node /app/server.js >/tmp/panel-api.log 2>&1 &
 sleep 1
 if ! kill -0 "$!" 2>/dev/null; then
   echo "[FATAL] Panel API gagal start" >&2
@@ -250,5 +233,5 @@ if [[ ! -x "$WRAPPER_BIN" ]]; then
   echo "[FATAL] Proxy wrapper tidak ditemukan: $WRAPPER_BIN" >&2
   exit 1
 fi
-echo "[*] Starting Go proxy wrapper (HTTP/UI -> Python 127.0.0.1:3000, Xray -> Nginx 127.0.0.1:8081)..."
+echo "[*] Starting Go proxy wrapper (HTTP/UI -> Node 127.0.0.1:3000, Xray -> Nginx 127.0.0.1:8081)..."
 exec "$WRAPPER_BIN"

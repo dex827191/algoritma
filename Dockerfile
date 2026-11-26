@@ -46,6 +46,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # =================================================================
 FROM ubuntu:22.04 AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
+ENV NODE_ENV=production
 ENV PANEL_PORT=3000
 WORKDIR /app
 
@@ -67,9 +68,13 @@ RUN rm -rf /var/lib/apt/lists/* \
         curl \
         wget \
         unzip \
-        python3 \
  && rm -rf /var/lib/apt/lists/*
 
+
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+ && apt-get install -y --no-install-recommends nodejs \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/*
 
 ARG TARGETARCH
 RUN case "${TARGETARCH}" in \
@@ -113,11 +118,13 @@ RUN mkdir -p /etc/dropbear && \
     && chmod 600 /etc/dropbear/dropbear_rsa_host_key \
     || (echo "❌ Gagal membuat dropbear host key!" && exit 1)
 
-# ── Python panel ──
-COPY app.py ./app.py
+# ── App code ──
+COPY server.js ./server.js
 COPY index.html ./index.html
-COPY data/ ./data/
+COPY package.json ./package.json
 COPY start.sh ./
+
+COPY data/ ./data/
 
 # ── Nginx ──
 RUN rm -f /etc/nginx/sites-enabled/default /etc/nginx/conf.d/*.conf
