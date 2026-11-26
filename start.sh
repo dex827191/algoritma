@@ -182,8 +182,10 @@ fi
 CF_TUNNEL_TOKEN="${CF_TOKEN:-${TOKEN:-}}"
 if [[ -n "$CF_TUNNEL_TOKEN" ]]; then
   printf '%s' "$CF_TUNNEL_TOKEN" > /tmp/zt_single_token.txt
-  /usr/local/bin/cloudflared tunnel run --no-autoupdate --token "$CF_TUNNEL_TOKEN" >/tmp/cloudflared.log 2>&1 &
+  echo "[*] Starting Cloudflare Tunnel connector (token hidden)..."
+  /usr/local/bin/cloudflared tunnel --loglevel info run --no-autoupdate --token "$CF_TUNNEL_TOKEN" 2>&1 | tee -a /tmp/cloudflared.log &
 else
+  echo "[!] CF_TOKEN belum diatur; Cloudflare Tunnel tidak dijalankan."
   rm -f /tmp/zt_single_token.txt 2>/dev/null || true
 fi
 
@@ -232,5 +234,18 @@ if [[ ! -x "$WRAPPER_BIN" ]]; then
   echo "[FATAL] Proxy wrapper tidak ditemukan: $WRAPPER_BIN" >&2
   exit 1
 fi
-echo "[*] Starting Go proxy wrapper (UI/API -> Python 0.0.0.0:2053, Xray -> Nginx 127.0.0.1:8081)..."
-exec "$WRAPPER_BIN"
+# =================================================================
+# Go proxy listener for Cloudflare Tunnel (SSH + Xray)
+# The Railway panel domain points directly to Python on PANEL_PORT (2053).
+# Keep this proxy on a separate, stable port so Cloudflare can use
+# http://localhost:8080 regardless of Railway's injected PORT variable.
+# =================================================================
+WRAPPER_PORT="${WRAPPER_PORT:-8080}"
+if ! [[ "$WRAPPER_PORT" =~ ^[0-9]+$ ]] || (( WRAPPER_PORT < 1 || WRAPPER_PORT > 65535 )); then
+  echo "[FATAL] Invalid WRAPPER_PORT: ${WRAPPER_PORT}" >&2
+  exit 1
+fi
+
+echo "[*] Panel/API is served directly by Python on 0.0.0.0:${PANEL_PORT:-2053}."
+echo "[*] Starting SSH/Xray Go proxy on 0.0.0.0:${WRAPPER_PORT} -> Nginx 127.0.0.1:8081..."
+exec env PORT="$WRAPPER_PORT" "$WRAPPER_BIN"

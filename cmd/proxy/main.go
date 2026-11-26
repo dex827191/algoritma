@@ -42,6 +42,10 @@ func isXrayPath(path string) bool {
 	return false
 }
 
+func isNginxWebSocketPath(path string) bool {
+	return strings.HasPrefix(path, "/ssh-ws") || strings.HasPrefix(path, "/ssh")
+}
+
 func writeAll(w io.Writer, data []byte) error {
 	for len(data) > 0 {
 		n, err := w.Write(data)
@@ -185,7 +189,7 @@ func handleClient(client net.Conn) {
 			path = parts[1]
 		}
 
-		if !isXrayPath(path) {
+		if !isXrayPath(path) && !isNginxWebSocketPath(path) {
 			response := []byte("HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: keep-alive\r\n\r\n")
 			if writeAll(client, response) != nil {
 				return
@@ -247,7 +251,7 @@ func main() {
 	}
 	defer listener.Close()
 
-	log.Printf("Go HTTP/WebSocket proxy listening on %s -> %s:%s", listenAddr, nginxHost, nginxPort)
+	log.Printf("HTTP/WebSocket mux listening on %s -> Nginx %s:%s", listenAddr, nginxHost, nginxPort)
 	for {
 		conn, err := listener.Accept()
 		if err != nil {

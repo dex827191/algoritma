@@ -126,9 +126,9 @@ def add_ssh(username, password, ip, agent):
             "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
         }
         save_db(db)
-        domain = os.environ.get("DOMAIN") or "gunakan domain panel"
+        domain = os.environ.get("SSH_DOMAIN") or os.environ.get("DOMAIN") or "isi SSH_DOMAIN di Railway Variables"
         return {"status": "success", "username": username, "password": password,
-                "message": f"Akun SSH berhasil dibuat\nHost: {domain}\nPort: 80/443\nPath: /ssh-ws\nUsername: {username}\nPassword: {password}"}
+                "message": f"Akun SSH berhasil dibuat\nHost: {domain}\nPort: 8080\nPath: /ssh-ws\nUsername: {username}\nPassword: {password}"}
     except Exception as exc:
         if created:
             try: remove_linux_user(username)
@@ -356,7 +356,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/healthz":
             return self.send_text("ok\n")
         if path == "/__info":
-            return self.send_json({"uuid": SERVER_UUID, "domain": os.environ.get("DOMAIN") or self.headers.get("Host", ""),
+            return self.send_json({"uuid": SERVER_UUID, "domain": os.environ.get("XRAY_DOMAIN") or os.environ.get("DOMAIN") or self.headers.get("Host", ""),
+                                   "ssh_domain": os.environ.get("SSH_DOMAIN") or os.environ.get("DOMAIN") or "",
+                                   "xray_domain": os.environ.get("XRAY_DOMAIN") or os.environ.get("DOMAIN") or self.headers.get("Host", ""),
                                    "paths": {"vless": "/vless", "vmess": "/vmess", "trojan": "/trojan"},
                                    "xray_accounts": len(load_xray_accounts())})
         if path == "/api/setup-pass":
@@ -461,9 +463,14 @@ class Handler(BaseHTTPRequestHandler):
                 uptime_seconds = float(Path("/proc/uptime").read_text().split()[0])
             except Exception: uptime_seconds = 0
             railway_sni = f"{os.environ.get('RAILWAY_TCP_PROXY_DOMAIN')}:{os.environ.get('RAILWAY_TCP_PROXY_PORT', '')}" if os.environ.get("RAILWAY_TCP_PROXY_DOMAIN") else "Tidak Aktif"
+            tunnel_process = subprocess.run(["pgrep", "-x", "cloudflared"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+            ssh_domain = os.environ.get("SSH_DOMAIN") or os.environ.get("DOMAIN") or ""
+            xray_domain = os.environ.get("XRAY_DOMAIN") or os.environ.get("DOMAIN") or self.headers.get("Host", "")
             return self.send_json({
                 "pass_configured": bool(get_admin_password()), "status": "ONLINE",
-                "domain": os.environ.get("DOMAIN") or self.headers.get("Host", ""),
+                "domain": ssh_domain or self.headers.get("Host", ""),
+                "ssh_domain": ssh_domain, "xray_domain": xray_domain,
+                "cloudflared_process": tunnel_process,
                 "railway_public": os.environ.get("RAILWAY_PUBLIC_DOMAIN") or "Tidak Aktif",
                 "railway_sni": railway_sni, "ws_proxy_cfg": ws, "sys_settings": sys_settings,
                 "cpu_model": cpu_model, "ram_total": ram_total, "ram_used": ram_used,
