@@ -45,7 +45,7 @@ func isXrayPath(path string) bool {
 }
 
 func isNginxWebSocketPath(path string) bool {
-	return strings.HasPrefix(path, "/ssh-ws") || strings.HasPrefix(path, "/ssh")
+	return strings.HasPrefix(path, "/ssh")
 }
 
 func writeAll(w io.Writer, data []byte) error {
@@ -165,94 +165,35 @@ func relay(clientReader *bufio.Reader, client net.Conn, upstreamReader *bufio.Re
 	<-done
 }
 
-// proxyHTTPToPanel meneruskan HTTP mentah ke Node panel agar request, body,
-// keep-alive, dan Upgrade WebSocket non-Xray tetap utuh.
-func proxyHTTPToPanel(client net.Conn, clientReader *bufio.Reader, rawHeader []byte) {
-	upstream, err := net.DialTimeout("tcp", net.JoinHostPort(panelHost, panelPort), 8*time.Second)
-	if err != nil {
-		log.Printf("connect panel %s:%s: %v", panelHost, panelPort, err)
-		_, _ = io.WriteString(client, "HTTP/1.1 502 Bad Gateway\r\nContent-Length: 18\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\nPanel unavailable")
-		return
-	}
-	defer upstream.Close()
-	if err := writeAll(upstream, rawHeader); err != nil {
-		return
-	}
-	if buffered := clientReader.Buffered(); buffered > 0 {
-		data, _ := clientReader.Peek(buffered)
-		pending := append([]byte(nil), data...)
-		_, _ = clientReader.Discard(buffered)
-		if err := writeAll(upstream, pending); err != nil {
-			return
-		}
-	}
-	relayRaw(client, upstream)
-}
-
-func relayRaw(client, upstream net.Conn) {
-	done := make(chan struct{}, 2)
-	go func() {
-		_, _ = io.Copy(upstream, client)
-		if tcp, ok := upstream.(*net.TCPConn); ok {
-			_ = tcp.CloseWrite()
-		}
-		done <- struct{}{}
-	}()
-	go func() {
-		_, _ = io.Copy(client, upstream)
-		if tcp, ok := client.(*net.TCPConn); ok {
-			_ = tcp.CloseWrite()
-		}
-		done <- struct{}{}
-	}()
-	<-done
-}
-
 func handleClient(client net.Conn) {
 	defer client.Close()
 	clientReader := bufio.NewReaderSize(client, 64*1024)
 
-	for {
-		rawHeader, err := readHeader(clientReader)
-		if err != nil {
-			return
-		}
-		textHeader := string(rawHeader)
-		lines := strings.Split(textHeader, "\r\n")
-		if len(lines) == 0 {
-			continue
-		}
-		firstLine := lines[0]
+	rawHeader, err := readHeader(clientReader)
+	if err != nil {
+		return
+	}
+	lines := strings.Split(string(rawHeader), "\r\n")
+	if len(lines) == 0 || lines[0] == "" {
+		return
+	}
+	parts := strings.Fields(lines[0])
+	if len(parts) < 2 {
+		return
+	}
+	path := parts[1]
 
-		// Some frontends send an HTTP status line before the actual request.
-		if strings.HasPrefix(firstLine, "HTTP/") {
-			continue
-		}
-		parts := strings.Split(firstLine, " ")
-		path := "/"
-		if len(parts) >= 2 && parts[1] != "" {
-			path = parts[1]
-		}
-
-		if !isXrayPath(path) && !isNginxWebSocketPath(path) {
-			// UI, assets, dan API langsung menuju Node.js :3000.
-			proxyHTTPToPanel(client, clientReader, rawHeader)
-			return
-		}
-
+	if isXrayPath(path) {
 		upstream, err := net.DialTimeout("tcp", net.JoinHostPort(nginxHost, nginxPort), 8*time.Second)
 		if err != nil {
-			log.Printf("connect nginx: %v", err)
+			log.Printf("connect nginx for Xray: %v", err)
 			return
 		}
 		upstreamReader := bufio.NewReaderSize(upstream, 64*1024)
-
 		if err := writeAll(upstream, buildWebSocketRequest(path, lines)); err != nil {
 			_ = upstream.Close()
 			return
 		}
-
-		// Read and forward Nginx's complete HTTP handshake response.
 		responseHeader, err := readHeader(upstreamReader)
 		if err != nil {
 			_ = upstream.Close()
@@ -262,8 +203,6 @@ func handleClient(client net.Conn) {
 			_ = upstream.Close()
 			return
 		}
-
-		// Forward any bytes already buffered after the client's request header.
 		if buffered := clientReader.Buffered(); buffered > 0 {
 			buf, _ := clientReader.Peek(buffered)
 			pending := append([]byte(nil), buf...)
@@ -276,10 +215,25 @@ func handleClient(client net.Conn) {
 				}
 			}
 		}
-
 		relay(clientReader, client, upstreamReader, upstream)
 		return
 	}
+
+	upstreamAddr := net.JoinHostPort(panelHost, panelPort)
+	if isNginxWebSocketPath(path) {
+		upstreamAddr = net.JoinHostPort(nginxHost, nginxPort)
+	}
+	upstream, err := net.DialTimeout("tcp", upstreamAddr, 8*time.Second)
+	if err != nil {
+		log.Printf("connect upstream %s: %v", upstreamAddr, err)
+		return
+	}
+	upstreamReader := bufio.NewReaderSize(upstream, 64*1024)
+	if err := writeAll(upstream, rawHeader); err != nil {
+		_ = upstream.Close()
+		return
+	}
+	relay(clientReader, client, upstreamReader, upstream)
 }
 
 func main() {
@@ -294,7 +248,7 @@ func main() {
 	}
 	defer listener.Close()
 
-	log.Printf("Go proxy listening on %s | UI/API -> %s:%s | SSH/Xray WebSocket -> %s:%s", listenAddr, panelHost, panelPort, nginxHost, nginxPort)
+	log.Printf("Go HTTP/WebSocket proxy listening on %s -> %s:%s", listenAddr, nginxHost, nginxPort)
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
