@@ -90,7 +90,10 @@ if [ -n "${CF_TOKEN:-}" ]; then
   cloudflared tunnel --no-autoupdate run --token "$CF_TOKEN" &
 fi
 
-exec env PUBLIC_PORT="${PORT:-8881}" PORT="${PORT:-8881}" \
+# Optional raw-TCP splitter stays on 8881. It must never occupy the
+# HTTP origin port 8080 used by Cloudflare Tunnel.
+MUX_PORT="${MUX_PORT:-8881}"
+PUBLIC_PORT="$MUX_PORT" PORT="$MUX_PORT" \
   SSL_TARGET_HOST=127.0.0.1 SSL_TARGET_PORT=2443 \
   WS_TARGET_HOST=127.0.0.1 WS_TARGET_PORT=8880 \
   python3 /app/mux.py

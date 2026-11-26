@@ -127,6 +127,14 @@ class Handler(BaseHTTPRequestHandler):
                     with open("/proc/cpuinfo") as f:
                         stats["cpu_model"]=next((x.split(":",1)[1].strip() for x in f if x.startswith("model name")), "Unknown")
                 except Exception: pass
+                try:
+                    with open("/tmp/ssh_conns.json", "r", encoding="utf-8") as f:
+                        conn_data = json.load(f)
+                    stats["ssh_online"] = str(int(conn_data.get("total", 0)))
+                    stats["ssh_connections"] = conn_data.get("list", [])
+                except Exception:
+                    stats["ssh_online"] = "0"
+                    stats["ssh_connections"] = []
                 self.send_json(200, stats)
             except Exception as e: self.send_json(500,{"status":"error","message":str(e)})
             return

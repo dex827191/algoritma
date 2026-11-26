@@ -6,12 +6,38 @@ import hashlib
 import logging
 import os
 import socket
+import json
+import time
 
 HOST = "0.0.0.0"
 PORT = int(os.getenv("WS_PORT", "8880"))
 SSH_HOST = os.getenv("SSH_TARGET_HOST", "127.0.0.1")
 CONFIG_FILE = "/tmp/ws_proxy_config.json"
 WS_MAGIC = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+CONNS_FILE = "/tmp/ssh_conns.json"
+ACTIVE_WS = {}
+CONN_SEQ = 0
+
+
+def write_registry():
+    try:
+        items = list(ACTIVE_WS.values())
+        data = {
+            "updated": int(time.time() * 1000),
+            "total": len(items),
+            "ws_active": len(items),
+            "ssl_active": 0,
+            "list": items,
+        }
+        tmp = CONNS_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        os.replace(tmp, CONNS_FILE)
+    except Exception:
+        pass
+
+
+write_registry()
 
 logging.basicConfig(level=logging.INFO, format="[WS Engine Python] %(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("ws-proxy")
@@ -74,9 +100,12 @@ async def handle_client(client_reader, client_writer):
     ssh_port = int(cfg.get("sshPort") or os.getenv("SSH_TARGET_PORT", "22"))
     keepalive = int(cfg.get("keepAlive") or 15000)
     max_buffer = int(cfg.get("maxBuffer") or 32768)
+    global CONN_SEQ
     peer = client_writer.get_extra_info("peername")
     tune(client_writer, keepalive)
     ssh_writer = None
+    conn_id = None
+    headers_for_ip = {}
 
     try:
         # Read the initial HTTP request/header block while retaining any bytes
@@ -93,6 +122,7 @@ async def handle_client(client_reader, client_writer):
             header_block, trailing = initial, b""
 
         headers = parse_headers(header_block)
+        headers_for_ip = headers
         lower = header_block.lower()
         is_upgrade = b"upgrade: websocket" in lower or headers.get("upgrade", "").lower() == "websocket"
 
@@ -122,7 +152,8 @@ async def handle_client(client_reader, client_writer):
         pending = bytearray()
 
         async def send_client_payload(data):
-            nonlocal pending
+            nonlocal pending, conn_id
+            global CONN_SEQ
             if not data:
                 return
             if pending is not None:
@@ -131,6 +162,14 @@ async def handle_client(client_reader, client_writer):
                 if marker >= 0:
                     await write_data(ssh_writer, bytes(pending[marker:]))
                     pending = None
+                    if conn_id is None:
+                        CONN_SEQ += 1
+                        conn_id = str(CONN_SEQ)
+                        ip = (headers_for_ip.get("cf-connecting-ip")
+                              or headers_for_ip.get("x-forwarded-for", "").split(",")[0].strip()
+                              or (peer[0] if peer else "Unknown"))
+                        ACTIVE_WS[conn_id] = {"ip": ip, "since": int(time.time() * 1000), "via": "WS"}
+                        write_registry()
                 elif len(pending) > max_buffer:
                     raise ConnectionError("SSH identification string not found within maxBuffer")
             else:
@@ -163,6 +202,9 @@ async def handle_client(client_reader, client_writer):
     except Exception:
         log.exception("Unhandled client error from %s", peer)
     finally:
+        if conn_id is not None:
+            ACTIVE_WS.pop(conn_id, None)
+            write_registry()
         for writer in (ssh_writer, client_writer):
             if writer is not None:
                 writer.close()
