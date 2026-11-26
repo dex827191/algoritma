@@ -83,15 +83,14 @@ nginx -c /app/nginx.conf
 ) &
 
 # SSH WebSocket and the unchanged Xray-only proxy_wrapper run on private ports.
-WS_PORT=8880 WS_TARGET_HOST=127.0.0.1 WS_TARGET_PORT=22 python3 /app/ws-proxy.py &
+WS_PORT=8880 SSH_TARGET_HOST=127.0.0.1 SSH_TARGET_PORT=22 python3 /app/ws-proxy.py &
 PORT=8082 python3 /app/proxy_wrapper.py &
 python3 /app/app.py &
 if [ -n "${CF_TOKEN:-}" ]; then
   cloudflared tunnel --no-autoupdate run --token "$CF_TOKEN" &
 fi
 
-exec env PORT="${PORT:-8080}" MAIN_MUX_PORT="${PORT:-8080}" \
+exec env PUBLIC_PORT="${PORT:-8881}" PORT="${PORT:-8881}" \
   SSL_TARGET_HOST=127.0.0.1 SSL_TARGET_PORT=2443 \
-  WS_MUX_TARGET_HOST=127.0.0.1 WS_MUX_TARGET_PORT=8880 \
-  XRAY_PROXY_HOST=127.0.0.1 XRAY_PROXY_PORT=8082 \
+  WS_TARGET_HOST=127.0.0.1 WS_TARGET_PORT=8880 \
   python3 /app/mux.py
