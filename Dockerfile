@@ -12,6 +12,7 @@ WORKDIR /src
 COPY proxy_wrapper.go app.go wsproxy.go ./
 
 RUN set -eux; \
+    mkdir -p /out; \
     GOOS="${TARGETOS:-linux}"; \
     GOARCH="${TARGETARCH:-amd64}"; \
     CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" \
@@ -48,6 +49,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xz-utils \
     tar \
     bash \
+    jq \
+    passwd \
     socat \
     openssl \
     net-tools \
@@ -171,8 +174,12 @@ RUN printf '%s\n' \
 # =========================================================
 # STUNNEL DIRECTORIES
 # =========================================================
-RUN mkdir -p /etc/stunnel /var/run/stunnel \
-    && chmod 0755 /etc/stunnel
+RUN mkdir -p \
+    /etc/stunnel \
+    /var/run/stunnel \
+    /etc/dropbear \
+    /var/run/dropbear \
+    /data
 
 
 # =========================================================
@@ -188,19 +195,25 @@ COPY index.html /app/index.html
 COPY config.json /app/config.json
 COPY start.sh /app/start.sh
 
-RUN chmod 0755 /app/start.sh
+
+# =========================================================
+# FIX START.SH FORMAT
+# =========================================================
+RUN set -eux; \
+    sed -i 's/\r$//' /app/start.sh; \
+    chmod 0755 /app/start.sh; \
+    test -s /app/start.sh; \
+    head -n 1 /app/start.sh | grep -q '^#!/bin/sh'
 
 
 # =========================================================
 # PERSISTENT DATA
 # =========================================================
-RUN mkdir -p /data
-
 VOLUME ["/data"]
 
 
 # =========================================================
-# EXPOSE PORTS
+# PORTS
 # =========================================================
 EXPOSE 8080
 EXPOSE 22
@@ -209,6 +222,6 @@ EXPOSE 7300
 
 
 # =========================================================
-# START APPLICATION
+# START CONTAINER
 # =========================================================
-CMD ["/app/start.sh"]
+CMD ["/bin/sh", "/app/start.sh"]
