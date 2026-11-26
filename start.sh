@@ -8,7 +8,6 @@ set -eu
 PORT="${PORT:-8080}"
 SSL_INTERNAL_PORT="${SSL_INTERNAL_PORT:-2443}"
 WS_INTERNAL_PORT="${WS_INTERNAL_PORT:-8880}"
-
 DATA_DIR="${DATA_DIR:-/data}"
 
 umask 077
@@ -18,6 +17,7 @@ ulimit -n 65535 2>/dev/null || true
 echo "================================================="
 echo "       PREMIUM SSH SERVER DROPBEAR modssh3"
 echo "================================================="
+
 
 # =========================================================
 # REQUIRED DIRECTORIES
@@ -30,16 +30,28 @@ mkdir -p \
     /var/run/stunnel \
     /tmp
 
+
 # =========================================================
 # CHECK REQUIRED COMMANDS
 # =========================================================
-for cmd in jq openssl nginx dropbear dropbearkey useradd id; do
+for cmd in \
+    jq \
+    openssl \
+    nginx \
+    dropbear \
+    dropbearkey \
+    useradd
+do
     if ! command -v "$cmd" >/dev/null 2>&1; then
         echo "[ERROR] Command tidak ditemukan: $cmd"
         exit 1
     fi
 done
 
+
+# =========================================================
+# CHECK REQUIRED BINARIES
+# =========================================================
 for file in \
     /usr/local/bin/mux \
     /usr/local/bin/ssh-wsproxy \
@@ -52,11 +64,13 @@ do
     fi
 done
 
+
 # =========================================================
 # PERSISTENT CONFIGURATION
 # =========================================================
+echo "[*] Memeriksa konfigurasi..."
+
 if [ ! -s "$DATA_DIR/config.json" ]; then
-    echo "[*] Membuat konfigurasi Xray pertama..."
     cp /app/config.json "$DATA_DIR/config.json"
 fi
 
@@ -68,10 +82,19 @@ if [ ! -s "$DATA_DIR/xray-accounts.json" ]; then
     printf '[]\n' > "$DATA_DIR/xray-accounts.json"
 fi
 
-# Validate JSON files.
-jq -e 'type == "object"' "$DATA_DIR/config.json" >/dev/null
-jq -e 'type == "array"' "$DATA_DIR/ssh-users.json" >/dev/null
-jq -e 'type == "array"' "$DATA_DIR/xray-accounts.json" >/dev/null
+
+# =========================================================
+# VALIDATE JSON
+# =========================================================
+jq -e 'type == "object"' \
+    "$DATA_DIR/config.json" >/dev/null
+
+jq -e 'type == "array"' \
+    "$DATA_DIR/ssh-users.json" >/dev/null
+
+jq -e 'type == "array"' \
+    "$DATA_DIR/xray-accounts.json" >/dev/null
+
 
 # =========================================================
 # RESTORE SSH USERS
@@ -90,7 +113,6 @@ while IFS= read -r item; do
             ;;
     esac
 
-    # Linux username length limit.
     if [ "${#name}" -gt 32 ]; then
         continue
     fi
@@ -101,6 +123,7 @@ while IFS= read -r item; do
     fi
 
 done
+
 
 # =========================================================
 # DROPBEAR BANNER
@@ -115,18 +138,22 @@ cat > /etc/dropbear_banner <<'EOF'
 =================================================
 EOF
 
+
 # =========================================================
-# DROPBEAR HOST KEYS
+# DROPBEAR HOST KEY
 # =========================================================
 if [ ! -s /etc/dropbear/dropbear_ed25519_host_key ]; then
-    echo "[*] Membuat Dropbear ED25519 host key..."
+
+    echo "[*] Membuat Dropbear host key..."
 
     dropbearkey \
         -t ed25519 \
         -f /etc/dropbear/dropbear_ed25519_host_key
+
 fi
 
 chmod 600 /etc/dropbear/dropbear_ed25519_host_key
+
 
 # =========================================================
 # STUNNEL CERTIFICATE
@@ -156,7 +183,9 @@ if [ ! -s /etc/stunnel/stunnel.pem ]; then
     chmod 600 /etc/stunnel/stunnel.pem
 
     rm -f /tmp/stunnel.key /tmp/stunnel.crt
+
 fi
+
 
 # =========================================================
 # DROPBEAR SSH INTERNAL
@@ -170,6 +199,7 @@ dropbear \
     -b /etc/dropbear_banner \
     -r /etc/dropbear/dropbear_ed25519_host_key \
     -W 65536 &
+
 
 # =========================================================
 # STUNNEL SSH SSL
@@ -198,8 +228,9 @@ fi
 "$STUNNEL_BIN" /etc/stunnel/stunnel.conf \
     >/dev/stdout 2>&1 &
 
+
 # =========================================================
-# SSH WEBSOCKET PROXY
+# SSH WEBSOCKET
 # =========================================================
 echo "[*] Memulai SSH WebSocket..."
 
@@ -207,8 +238,9 @@ WS_PORT="$WS_INTERNAL_PORT" \
 SSH_TARGET="127.0.0.1:22" \
 /usr/local/bin/ssh-wsproxy &
 
+
 # =========================================================
-# NGINX REVERSE PROXY
+# NGINX
 # =========================================================
 echo "[*] Memeriksa konfigurasi Nginx..."
 
@@ -217,6 +249,7 @@ nginx -t -c /etc/nginx/nginx.conf
 echo "[*] Memulai Nginx..."
 
 nginx -c /etc/nginx/nginx.conf
+
 
 # =========================================================
 # XRAY CORE
@@ -239,6 +272,7 @@ echo "[*] Memulai Xray Core..."
     done
 ) &
 
+
 # =========================================================
 # BADVPN UDPGW
 # =========================================================
@@ -249,6 +283,7 @@ echo "[*] Memulai BadVPN UDPGW Engine di Port Lokal 7300..."
     --max-clients 500 \
     --max-connections-for-client 20 \
     --loglevel warning &
+
 
 # =========================================================
 # CLOUDFLARE TUNNEL
@@ -269,8 +304,9 @@ else
 
 fi
 
+
 # =========================================================
-# PUBLIC TCP MULTIPLEXER
+# PUBLIC MULTIPLEXER
 # =========================================================
 echo "================================================="
 echo "[*] Memulai Multiplexer Publik"
@@ -286,3 +322,4 @@ exec env \
     WS_MUX_TARGET_HOST="127.0.0.1" \
     WS_MUX_TARGET_PORT="$WS_INTERNAL_PORT" \
     /usr/local/bin/mux
+    
