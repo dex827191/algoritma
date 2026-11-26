@@ -1,9 +1,8 @@
 import {
   LayoutDashboard,
   UserPlus,
+  Radio,
   Settings,
-  Globe,
-  Network,
   Zap,
   Server,
   KeyRound,
@@ -14,9 +13,8 @@ import { cn } from '@/lib/utils';
 export type PageId =
   | 'dashboard'
   | 'create-ssh'
+  | 'create-xray'
   | 'set-ssh'
-  | 'set-v2ray'
-  | 'set-cfip'
   | 'generator';
 
 interface SidebarProps {
@@ -32,9 +30,8 @@ interface SidebarProps {
 const menuItems: { id: PageId; label: string; icon: typeof LayoutDashboard }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'create-ssh', label: 'Buat Akun SSH', icon: UserPlus },
+  { id: 'create-xray', label: 'Buat Akun Xray', icon: Radio },
   { id: 'set-ssh', label: 'Pengaturan SSH', icon: Settings },
-  { id: 'set-v2ray', label: 'Pengaturan V2Ray', icon: Network },
-  { id: 'set-cfip', label: 'Pengaturan CFIP', icon: Globe },
   { id: 'generator', label: 'Config Generator', icon: Zap },
 ];
 

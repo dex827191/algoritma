@@ -55,6 +55,7 @@ export function SshSettings({ stats, adminToken, onRequireAdmin, showToast }: Ss
   const [banner, setBanner] = useState('');
   const [bbr, setBbr] = useState('true');
   const [udpgw, setUdpgw] = useState('7300');
+  const [udpgwMaxClients, setUdpgwMaxClients] = useState('1000');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -82,6 +83,7 @@ export function SshSettings({ stats, adminToken, onRequireAdmin, showToast }: Ss
       setBanner(stats.sys_settings.banner || '');
       setBbr(stats.sys_settings.enable_bbr || 'true');
       setUdpgw(stats.sys_settings.udpgw_port || '7300');
+      setUdpgwMaxClients(stats.sys_settings.udpgw_max_clients || '1000');
     }
   }, [stats]);
 
@@ -100,7 +102,7 @@ export function SshSettings({ stats, adminToken, onRequireAdmin, showToast }: Ss
 
     try {
       const r1 = await saveWsProxySetting(token, port || '22', keep || '15000', buf || '32768');
-      const r2 = await saveSystemSetting(token, banner, bbr, udpgw);
+      const r2 = await saveSystemSetting(token, banner, bbr, udpgw, udpgwMaxClients);
       showToast(`${r1.message} | ${r2.message}`, r1.status === 'success' ? 'success' : 'error');
     } catch {
       showToast('Gagal memperbarui SSH Config', 'error');
@@ -175,6 +177,14 @@ export function SshSettings({ stats, adminToken, onRequireAdmin, showToast }: Ss
             <Field label="UDPGW Port">
               <Select value={udpgw} onChange={setUdpgw} options={udpgwOptions} />
             </Field>
+            <Field label="UDPGW Max Clients">
+              <Input
+                value={udpgwMaxClients}
+                onChange={setUdpgwMaxClients}
+                placeholder="1000"
+                type="number"
+              />
+            </Field>
           </div>
         </div>
 
@@ -189,7 +199,7 @@ export function SshSettings({ stats, adminToken, onRequireAdmin, showToast }: Ss
 
       <div className="flex items-start gap-2 text-xs text-neutral-60 bg-primary-95/50 rounded-m3-sm p-3">
         <AlertCircle size={14} className="text-primary-50 mt-0.5 shrink-0" />
-        Perubahan pada port dan BBR akan langsung di-apply ke server. UDPGW akan di-restart otomatis.
+        WSProxy membaca konfigurasi setiap koneksi. Perubahan port SSH, banner, BBR, dan UDPGW diterapkan otomatis oleh supervisor tanpa restart container.
       </div>
     </div>
   );

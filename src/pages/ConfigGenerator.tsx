@@ -63,7 +63,7 @@ export function ConfigGenerator({ stats, showToast }: ConfigGeneratorProps) {
 
   useEffect(() => {
     if (stats) {
-      setEngine(stats.engine_mode || 'ws');
+      setEngine('ws');
     }
   }, [stats]);
 
@@ -76,14 +76,6 @@ export function ConfigGenerator({ stats, showToast }: ConfigGeneratorProps) {
     }
     if (stats?.railway_public && stats.railway_public !== 'Tidak Aktif') {
       opts.push({ value: stats.railway_public, label: `Railway Reality: ${stats.railway_public}` });
-    }
-    if (stats?.quick_url && !stats.quick_url.includes('Menunggu')) {
-      opts.push({ value: stats.quick_url, label: `Quick Tunnel: ${stats.quick_url}` });
-    }
-    if (stats?.zt_vmess_domains) {
-      stats.zt_vmess_domains.forEach((d) => {
-        opts.push({ value: d.domain, label: `Zero Argo: ${d.domain}` });
-      });
     }
     if (opts.length === 0) {
       opts.push({ value: '', label: '-- Menunggu Domain --' });

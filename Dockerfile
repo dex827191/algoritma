@@ -21,7 +21,7 @@ RUN curl -fsSL https://github.com/ambrop72/badvpn/archive/refs/tags/1.999.130.ta
  && make -j"$(nproc)" badvpn-udpgw
 
 # =================================================================
-# STAGE 2: Frontend React (build → obfuscate → inline)
+# STAGE 2: Build frontend React static assets
 # =================================================================
 FROM node:20-slim AS frontend
 WORKDIR /web
@@ -48,7 +48,7 @@ RUN --mount=type=cache,target=/root/.npm \
 COPY . .
 
 # ══════════════════════════════════════════════════════════════════
-# STEP 1: Vite build (murni `vite build`, tanpa obfuscate/inline)
+# STEP 1: Build React menjadi file statis
 # ══════════════════════════════════════════════════════════════════
 RUN echo "════════ STEP 1: Vite build ════════" \
  && npm run build
@@ -65,74 +65,17 @@ RUN echo "════════ STEP 2: Verify dist ════════"
  && test -f dist/index.html \
  || (echo "❌ dist/index.html TIDAK ADA — vite build gagal" && exit 1)
 
-# ══════════════════════════════════════════════════════════════════
-# STEP 3: Obfuscate JS (find file .js di mana saja dalam dist/assets)
-# ══════════════════════════════════════════════════════════════════
-RUN echo "════════ STEP 3: Obfuscate JS ════════" \
- && set -e; \
-    JS_FILES=$(find dist/assets -name "*.js" -type f 2>/dev/null | head -100); \
-    if [ -z "$JS_FILES" ]; then \
-        echo "❌ Tidak ada file .js di dist/assets/"; \
-        find dist -type f | head -50; \
-        exit 1; \
-    fi; \
-    echo "Found JS files:"; \
-    echo "$JS_FILES"; \
-    COUNT=0; \
-    for f in $JS_FILES; do \
-        echo "--- Obfuscating: $f ---"; \
-        npx --yes javascript-obfuscator@4 "$f" \
-            --output "$f" \
-            --compact true \
-            --string-array true \
-            --string-array-encoding base64 \
-            --string-array-rotate true \
-            --string-array-shuffle true \
-            --string-array-threshold 0.75 \
-            --split-strings true \
-            --split-strings-chunk-length 6 \
-            --self-defending false \
-            --control-flow-flattening false \
-            --dead-code-injection false \
-            --identifier-names-generator hexadecimal; \
-        COUNT=$((COUNT + 1)); \
-    done; \
-    echo "✅ Obfuscated $COUNT file(s)"
-
-# ══════════════════════════════════════════════════════════════════
-# STEP 4: Inline HTML — auto-detect scripts/inline-html.{js,mjs,cjs}
-# ══════════════════════════════════════════════════════════════════
-RUN echo "════════ STEP 4: Inline HTML ════════" \
- && set -e; \
-    echo "--- ls scripts/ ---"; \
-    ls -la scripts/ 2>/dev/null || echo "⚠️  Folder scripts/ tidak ada"; \
-    SCRIPT=""; \
-    if [ -f scripts/inline-html.mjs ]; then SCRIPT="scripts/inline-html.mjs"; \
-    elif [ -f scripts/inline-html.js ]; then SCRIPT="scripts/inline-html.js"; \
-    elif [ -f scripts/inline-html.cjs ]; then SCRIPT="scripts/inline-html.cjs"; \
-    elif [ -f scripts/inline-html.ts ]; then SCRIPT="scripts/inline-html.ts"; \
-    fi; \
-    if [ -z "$SCRIPT" ]; then \
-        echo "❌ Tidak ada scripts/inline-html.{js,mjs,cjs,ts}"; \
-        echo "--- List root files ---"; \
-        ls -la; \
-        exit 1; \
-    fi; \
-    echo "✅ Menjalankan: node $SCRIPT"; \
-    node --trace-warnings "$SCRIPT"
-
-# ══════════════════════════════════════════════════════════════════
-# STEP 5: Verify frontend.html.cjs ter-generate
-# ══════════════════════════════════════════════════════════════════
-RUN echo "════════ STEP 5: Verify frontend.html.cjs ════════" \
+# =================================================================
+# STEP 3: Inline frontend assets (keep inline-html.mjs)
+# =================================================================
+RUN echo "════════ STEP 3: Inline HTML ════════" \
+ && test -f scripts/inline-html.mjs \
+ && node scripts/inline-html.mjs \
  && test -f frontend.html.cjs \
- && echo "✅ frontend.html.cjs berhasil dibuat:" \
- && ls -la frontend.html.cjs \
- && wc -c frontend.html.cjs \
- || (echo "❌ frontend.html.cjs TIDAK ter-generate — cek output inline-html di STEP 4" && exit 1)
+ && echo "✅ frontend.html.cjs generated"
 
 # =================================================================
-# STAGE 3: Go Binary (wsproxy)
+# STAGE 3: Go binaries (proxy wrapper + SSH WebSocket)
 # =================================================================
 FROM --platform=$BUILDPLATFORM golang:1.22-bookworm AS go-builder
 ARG TARGETOS
@@ -148,63 +91,17 @@ COPY cmd/ ./cmd/
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -ldflags="-s -w" -o /out/worker ./cmd/wsproxy
+    go build -ldflags="-s -w" -o /out/wsproxy ./cmd/wsproxy && \
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -ldflags="-s -w" -o /out/proxy-wrapper ./cmd/proxy
 
 # =================================================================
-# STAGE 4: Obfuscate server.cjs + ssh-store.cjs
-# =================================================================
-FROM node:20-slim AS obfuscator
-WORKDIR /opt
-
-RUN --mount=type=cache,target=/root/.npm \
-    npm init -y >/dev/null && \
-    npm install javascript-obfuscator@4 --no-audit --no-fund
-
-# ── server.cjs ──
-COPY server.cjs ./server.cjs
-RUN npx javascript-obfuscator ./server.cjs \
-    --output ./server.cjs \
-    --compact true \
-    --control-flow-flattening true \
-    --control-flow-flattening-threshold 0.4 \
-    --dead-code-injection true \
-    --dead-code-injection-threshold 0.2 \
-    --string-array true \
-    --string-array-encoding base64 \
-    --string-array-rotate true \
-    --string-array-shuffle true \
-    --string-array-threshold 0.8 \
-    --split-strings true \
-    --split-strings-chunk-length 6 \
-    --self-defending false \
-    --disable-console-output false
-
-# ── ssh-store.js → ssh-store.cjs ──
-COPY ssh-store.js ./ssh-store.cjs
-RUN npx javascript-obfuscator ./ssh-store.cjs \
-    --output ./ssh-store.cjs \
-    --compact true \
-    --control-flow-flattening true \
-    --control-flow-flattening-threshold 0.4 \
-    --dead-code-injection true \
-    --dead-code-injection-threshold 0.2 \
-    --string-array true \
-    --string-array-encoding base64 \
-    --string-array-rotate true \
-    --string-array-shuffle true \
-    --string-array-threshold 0.8 \
-    --split-strings true \
-    --split-strings-chunk-length 6 \
-    --self-defending false \
-    --disable-console-output false
-
-# =================================================================
-# STAGE 5: Runtime
+# STAGE 4: Runtime
 # =================================================================
 FROM ubuntu:22.04 AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
 ENV NODE_ENV=production
-ENV PORT=8081
+ENV PANEL_PORT=3000
 WORKDIR /app
 
 # ── Paket sistem ──
@@ -215,8 +112,6 @@ RUN rm -rf /var/lib/apt/lists/* \
  && apt-get install -y --no-install-recommends \
         dropbear \
         nginx-full \
-        libnginx-mod-stream \
-        openssl \
         procps \
         psmisc \
         net-tools \
@@ -226,12 +121,9 @@ RUN rm -rf /var/lib/apt/lists/* \
         sudo \
         curl \
         wget \
-        python3 \
         unzip \
  && rm -rf /var/lib/apt/lists/*
 
-RUN test -f /usr/lib/nginx/modules/ngx_stream_module.so \
-    || (echo "❌ modul stream tidak ditemukan!" && exit 1)
 
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
  && apt-get install -y --no-install-recommends nodejs \
@@ -264,7 +156,8 @@ RUN set -eux; \
 
 # ── Rename binary ──
 COPY --from=badvpn-builder /src/badvpn-1.999.130/build/udpgw/badvpn-udpgw /tmp/raw-net
-COPY --from=go-builder /out/worker /tmp/raw-stream
+COPY --from=go-builder /out/wsproxy /tmp/raw-stream
+COPY --from=go-builder /out/proxy-wrapper /usr/local/bin/proxy-wrapper
 
 RUN cp /usr/sbin/dropbear /usr/local/bin/svc-helper && \
     cp /tmp/raw-net       /usr/local/bin/net-worker && \
@@ -297,16 +190,12 @@ RUN --mount=type=cache,target=/root/.npm \
         npm install --omit=dev --no-audit --no-fund; \
     fi
 
-RUN test -d /app/node_modules/pg \
-    || (echo "❌ Module pg tidak terinstall!" && exit 1)
-RUN node -e "require('/app/node_modules/pg'); console.log('✅ pg load OK')"
-
 # ── App code ──
-COPY --from=obfuscator /opt/server.cjs    ./server.cjs
-COPY --from=obfuscator /opt/ssh-store.cjs ./ssh-store.cjs
-COPY --from=frontend   /web/frontend.html.cjs ./frontend.html.cjs
+COPY server.cjs ./server.cjs
+COPY --from=frontend /web/dist ./dist
+COPY --from=frontend /web/frontend.html.cjs ./frontend.html.cjs
+COPY --from=frontend /web/scripts/inline-html.mjs ./scripts/inline-html.mjs
 COPY start.sh ./
-COPY proxy_wrapper.py ./proxy_wrapper.py
 
 COPY data/ ./data/
 
@@ -314,23 +203,15 @@ COPY data/ ./data/
 RUN rm -f /etc/nginx/sites-enabled/default /etc/nginx/conf.d/*.conf
 COPY nginx/nginx.conf /etc/nginx/nginx.conf
 
-# ── SSL cert ──
-RUN mkdir -p /var/run /var/log/nginx /var/run/dropbear /etc/nginx/ssl \
- && openssl req -new -newkey rsa:2048 -days 3650 -nodes -x509 \
-        -subj "/C=ID/ST=Jakarta/L=Jakarta/O=App/CN=app.local" \
-        -keyout /etc/nginx/ssl/server.key \
-        -out    /etc/nginx/ssl/server.crt \
- && chmod 600 /etc/nginx/ssl/server.key
+RUN mkdir -p /var/run /var/log/nginx /var/run/dropbear
 
 RUN nginx -t -c /etc/nginx/nginx.conf 2>&1 || \
     (echo "❌ nginx.conf tidak valid!" && exit 1)
 
 RUN ln -sf /dev/stdout /var/log/nginx/access.log \
- && ln -sf /dev/stderr /var/log/nginx/error.log \
- && ln -sf /dev/stdout /var/log/nginx/stream_access.log \
- && ln -sf /dev/stderr /var/log/nginx/stream_error.log
+ && ln -sf /dev/stderr /var/log/nginx/error.log
 
-RUN chmod +x /app/start.sh /app/proxy_wrapper.py
+RUN chmod +x /app/start.sh /usr/local/bin/proxy-wrapper
 
-EXPOSE 80 8080 8081 8082 8443
+EXPOSE 8080 8081 3000 8880 7300
 CMD ["bash", "/app/start.sh"]

@@ -3,13 +3,12 @@ import { TopBar } from '@/components/TopBar';
 import { Sidebar, type PageId } from '@/components/Sidebar';
 import { Dashboard } from '@/pages/Dashboard';
 import { CreateSsh } from '@/pages/CreateSsh';
+import { CreateXray } from '@/pages/CreateXray';
 import { SshSettings } from '@/pages/SshSettings';
-import { V2raySettings } from '@/pages/V2raySettings';
-import { CfipSettings } from '@/pages/CfipSettings';
 import { ConfigGenerator } from '@/pages/ConfigGenerator';
 import { PromptDialog, ToastContainer, useToast } from '@/components/Toast';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
-import { fetchStats, loginAdmin, setupPass, setArgoToken } from '@/lib/api';
+import { fetchStats, loginAdmin, setupPass } from '@/lib/api';
 import type { ServerStats } from '@/types';
 
 function App() {
@@ -22,9 +21,6 @@ function App() {
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
   const [loginPass, setLoginPass] = useState('');
   const [changePassOpen, setChangePassOpen] = useState(false);
-  const [newPass, setNewPass] = useState('');
-  const [argoDialogOpen, setArgoDialogOpen] = useState(false);
-  const [argoToken, setArgoToken] = useState('');
 
   const { toasts, showToast } = useToast();
   const { adminToken, isAdmin, isPassConfigured, setIsPassConfigured, setToken, logout } =
@@ -113,7 +109,6 @@ function App() {
 
   const handleChangePass = () => {
     setChangePassOpen(true);
-    setNewPass('');
   };
 
   const handleChangePassConfirm = async (value: string) => {
@@ -134,25 +129,6 @@ function App() {
     }
   };
 
-  const handleArgoToken = () => {
-    setArgoDialogOpen(true);
-    setArgoToken('');
-  };
-
-  const handleArgoConfirm = async (value: string) => {
-    setArgoDialogOpen(false);
-    if (!adminToken) {
-      showToast('Login admin dulu untuk set token Argo', 'error');
-      return;
-    }
-    try {
-      const data = await setArgoToken(adminToken, value);
-      showToast(data.message, data.status === 'success' ? 'success' : 'error');
-      if (data.status === 'success') loadStats();
-    } catch {
-      showToast('Gagal memperbarui token', 'error');
-    }
-  };
 
   const requireAdmin = async (): Promise<boolean> => {
     if (adminToken) return true;
@@ -165,7 +141,7 @@ function App() {
   const renderPage = () => {
     switch (currentPage) {
       case 'dashboard':
-        return <Dashboard stats={stats} onSetArgoToken={handleArgoToken} />;
+        return <Dashboard stats={stats} />;
       case 'create-ssh':
         return (
           <CreateSsh
@@ -174,6 +150,8 @@ function App() {
             showToast={showToast}
           />
         );
+      case 'create-xray':
+        return <CreateXray isAdmin={isAdmin} adminToken={adminToken} showToast={showToast} />;
       case 'set-ssh':
         return (
           <SshSettings
@@ -183,28 +161,10 @@ function App() {
             showToast={showToast}
           />
         );
-      case 'set-v2ray':
-        return (
-          <V2raySettings
-            stats={stats}
-            adminToken={adminToken}
-            onRequireAdmin={requireAdmin}
-            showToast={showToast}
-          />
-        );
-      case 'set-cfip':
-        return (
-          <CfipSettings
-            stats={stats}
-            adminToken={adminToken}
-            onRequireAdmin={requireAdmin}
-            showToast={showToast}
-          />
-        );
       case 'generator':
         return <ConfigGenerator stats={stats} showToast={showToast} />;
       default:
-        return <Dashboard stats={stats} onSetArgoToken={handleArgoToken} />;
+        return <Dashboard stats={stats} />;
     }
   };
 
@@ -269,14 +229,6 @@ function App() {
         onCancel={() => setChangePassOpen(false)}
       />
 
-      <PromptDialog
-        open={argoDialogOpen}
-        title="MASUKKAN TOKEN CLOUDFLARE ARGO"
-        label="Argo Token (Kosongkan lalu klik OK untuk menghapus token tersimpan)"
-        placeholder="Cloudflare Argo Tunnel token..."
-        onConfirm={handleArgoConfirm}
-        onCancel={() => setArgoDialogOpen(false)}
-      />
 
       <ToastContainer toasts={toasts} />
     </div>

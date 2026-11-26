@@ -63,17 +63,6 @@ export async function setupPass(
   return apiFetch(`/api/setup-pass?${params}`);
 }
 
-export async function saveNetworkSetting(
-  token: string,
-  dnsType: string,
-  customDns: string,
-  engine: string
-): Promise<{ status: string; message: string }> {
-  return apiFetch(
-    `/api/set-network?pass=${encodeURIComponent(token)}&dns_type=${dnsType}&custom_dns=${encodeURIComponent(customDns)}&engine=${engine}`
-  );
-}
-
 export async function saveWsProxySetting(
   token: string,
   sshPort: string,
@@ -89,28 +78,11 @@ export async function saveSystemSetting(
   token: string,
   banner: string,
   enableBbr: string,
-  udpgwPort: string
+  udpgwPort: string,
+  udpgwMaxClients: string
 ): Promise<{ status: string; message: string }> {
   return apiFetch(
-    `/api/set-system?pass=${encodeURIComponent(token)}&banner=${encodeURIComponent(banner)}&enable_bbr=${enableBbr}&udpgw_port=${udpgwPort}`
-  );
-}
-
-export async function setArgoToken(
-  token: string,
-  argoToken: string
-): Promise<{ status: string; message: string }> {
-  return apiFetch(
-    `/api/set-token?pass=${encodeURIComponent(token)}&token=${encodeURIComponent(argoToken)}`
-  );
-}
-
-export async function setCfip(
-  token: string,
-  ip: string
-): Promise<{ status: string; message: string }> {
-  return apiFetch(
-    `/api/set-cfip?pass=${encodeURIComponent(token)}&ip=${encodeURIComponent(ip)}`
+    `/api/set-system?pass=${encodeURIComponent(token)}&banner=${encodeURIComponent(banner)}&enable_bbr=${enableBbr}&udpgw_port=${udpgwPort}&udpgw_max_clients=${udpgwMaxClients}`
   );
 }
 
@@ -123,3 +95,33 @@ export type {
   ConfigType,
   GenerateConfigParams,
 };
+
+
+export interface XrayAccount {
+  id: string;
+  name: string;
+  created_at: string;
+}
+
+export async function fetchXrayAccounts(token: string): Promise<{ status: string; accounts: XrayAccount[]; message?: string }> {
+  const res = await fetch(`/api/xray/list?token=${encodeURIComponent(token)}`);
+  return res.json();
+}
+
+export async function createXrayAccount(name: string, token: string): Promise<{ status: string; account?: XrayAccount; message: string }> {
+  const res = await fetch('/api/xray/add', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, token }),
+  });
+  return res.json();
+}
+
+export async function deleteXrayAccount(id: string, token: string): Promise<{ status: string; message: string }> {
+  const res = await fetch('/api/xray/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, token }),
+  });
+  return res.json();
+}

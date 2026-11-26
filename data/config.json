@@ -1,7 +1,5 @@
 {
   "log": {
-    "access": "none",
-    "error": "/tmp/xray-error.log",
     "loglevel": "warning"
   },
   "inbounds": [
@@ -10,16 +8,21 @@
       "port": 18080,
       "protocol": "vless",
       "settings": {
-        "clients": [],
+        "clients": [
+          {
+            "id": "9f4c2d7e-6a31-4b8c-9d52-7e1a3f6b0c84",
+            "level": 0
+          }
+        ],
         "decryption": "none"
       },
       "streamSettings": {
+        "network": "xhttp",
         "security": "none",
         "xhttpSettings": {
           "path": "/xhttp",
           "mode": "auto"
-        },
-        "method": "xhttp"
+        }
       },
       "tag": "vless-xhttp"
     },
@@ -28,15 +31,20 @@
       "port": 18081,
       "protocol": "vless",
       "settings": {
-        "clients": [],
+        "clients": [
+          {
+            "id": "9f4c2d7e-6a31-4b8c-9d52-7e1a3f6b0c84",
+            "level": 0
+          }
+        ],
         "decryption": "none"
       },
       "streamSettings": {
+        "network": "httpupgrade",
         "security": "none",
         "httpupgradeSettings": {
           "path": "/httpup"
-        },
-        "method": "httpupgrade"
+        }
       },
       "tag": "vless-httpupgrade"
     },
@@ -45,15 +53,20 @@
       "port": 18082,
       "protocol": "vless",
       "settings": {
-        "clients": [],
+        "clients": [
+          {
+            "id": "9f4c2d7e-6a31-4b8c-9d52-7e1a3f6b0c84",
+            "level": 0
+          }
+        ],
         "decryption": "none"
       },
       "streamSettings": {
+        "network": "ws",
         "security": "none",
         "wsSettings": {
           "path": "/vless"
-        },
-        "method": "websocket"
+        }
       },
       "tag": "vless-ws"
     },
@@ -62,15 +75,20 @@
       "port": 18083,
       "protocol": "vmess",
       "settings": {
-        "clients": []
+        "clients": [
+          {
+            "id": "9f4c2d7e-6a31-4b8c-9d52-7e1a3f6b0c84",
+            "alterId": 0
+          }
+        ]
       },
       "streamSettings": {
+        "network": "xhttp",
         "security": "none",
         "xhttpSettings": {
           "path": "/vmess-xhttp",
           "mode": "auto"
-        },
-        "method": "xhttp"
+        }
       },
       "tag": "vmess-xhttp"
     },
@@ -79,14 +97,19 @@
       "port": 18084,
       "protocol": "vmess",
       "settings": {
-        "clients": []
+        "clients": [
+          {
+            "id": "9f4c2d7e-6a31-4b8c-9d52-7e1a3f6b0c84",
+            "alterId": 0
+          }
+        ]
       },
       "streamSettings": {
+        "network": "httpupgrade",
         "security": "none",
         "httpupgradeSettings": {
           "path": "/vmess-httpup"
-        },
-        "method": "httpupgrade"
+        }
       },
       "tag": "vmess-httpupgrade"
     },
@@ -95,14 +118,19 @@
       "port": 18085,
       "protocol": "vmess",
       "settings": {
-        "clients": []
+        "clients": [
+          {
+            "id": "9f4c2d7e-6a31-4b8c-9d52-7e1a3f6b0c84",
+            "alterId": 0
+          }
+        ]
       },
       "streamSettings": {
+        "network": "ws",
         "security": "none",
         "wsSettings": {
           "path": "/vmess"
-        },
-        "method": "websocket"
+        }
       },
       "tag": "vmess-ws"
     },
@@ -111,15 +139,19 @@
       "port": 18086,
       "protocol": "trojan",
       "settings": {
-        "clients": []
+        "clients": [
+          {
+            "password": "9f4c2d7e-6a31-4b8c-9d52-7e1a3f6b0c84"
+          }
+        ]
       },
       "streamSettings": {
+        "network": "xhttp",
         "security": "none",
         "xhttpSettings": {
           "path": "/trojan-xhttp",
           "mode": "auto"
-        },
-        "method": "xhttp"
+        }
       },
       "tag": "trojan-xhttp"
     },
@@ -128,14 +160,18 @@
       "port": 18087,
       "protocol": "trojan",
       "settings": {
-        "clients": []
+        "clients": [
+          {
+            "password": "9f4c2d7e-6a31-4b8c-9d52-7e1a3f6b0c84"
+          }
+        ]
       },
       "streamSettings": {
+        "network": "httpupgrade",
         "security": "none",
         "httpupgradeSettings": {
           "path": "/trojan-httpup"
-        },
-        "method": "httpupgrade"
+        }
       },
       "tag": "trojan-httpupgrade"
     },
@@ -144,14 +180,18 @@
       "port": 18088,
       "protocol": "trojan",
       "settings": {
-        "clients": []
+        "clients": [
+          {
+            "password": "9f4c2d7e-6a31-4b8c-9d52-7e1a3f6b0c84"
+          }
+        ]
       },
       "streamSettings": {
+        "network": "ws",
         "security": "none",
         "wsSettings": {
           "path": "/trojan"
-        },
-        "method": "websocket"
+        }
       },
       "tag": "trojan-ws"
     }

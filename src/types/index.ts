@@ -1,8 +1,3 @@
-export interface ZtDomain {
-  domain: string;
-  port: string;
-}
-
 export interface WsProxyConfig {
   sshPort: number;
   keepAlive: number;
@@ -17,17 +12,11 @@ export interface SystemSettings {
 }
 
 export interface ServerStats {
-  active_cfip: string;
-  quick_url: string;
-  zt_domains: ZtDomain[];
-  zt_vmess_domains: ZtDomain[];
+  domain: string;
   pass_configured: boolean;
   railway_public: string;
   railway_sni: string;
   status: string;
-  dns_type: string;
-  custom_dns: string;
-  engine_mode: string;
   ws_proxy_cfg: WsProxyConfig;
   sys_settings: SystemSettings;
   cpu_model: string;
@@ -50,7 +39,6 @@ export interface SshUser {
 
 export interface ServerInfo {
   uuid: string;
-  cfip: string;
   domain: string;
   paths: {
     vless: string;
