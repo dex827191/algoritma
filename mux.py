@@ -1,90 +1,121 @@
 #!/usr/bin/env python3
-"""Pure TCP splitter: TLS ClientHello (0x16) -> stunnel; everything else -> WS proxy."""
+"""
+TCP Multiplexer sederhana ala sslh.
+
+Mendengarkan di SATU port publik, lalu mengintip beberapa byte pertama
+dari koneksi masuk untuk menentukan protokolnya:
+
+  - Byte pertama 0x16 (TLS handshake record)      -> diteruskan ke Stunnel (SSL)
+  - Selain itu (dianggap teks/HTTP-WS handshake)  -> diteruskan ke ws-proxy (WS)
+
+Berguna untuk platform seperti Railway yang cuma menyediakan SATU
+TCP Proxy publik per service, sehingga SSH-SSL dan SSH-WS tetap bisa
+diakses lewat port publik yang sama.
+"""
+
 import asyncio
 import logging
 import os
-import socket
+import signal
+import sys
 
-HOST = "0.0.0.0"
-PORT = int(os.getenv("PUBLIC_PORT", os.getenv("PORT", "8881")))
-SSL_HOST = os.getenv("SSL_TARGET_HOST", "127.0.0.1")
-SSL_PORT = int(os.getenv("SSL_TARGET_PORT", "2443"))
-WS_HOST = os.getenv("WS_TARGET_HOST", "127.0.0.1")
-WS_PORT = int(os.getenv("WS_TARGET_PORT", "8880"))
+LISTEN_HOST = "0.0.0.0"
+LISTEN_PORT = int(os.environ.get("MAIN_MUX_PORT", os.environ.get("PORT", "443")))
 
-logging.basicConfig(level=logging.INFO, format="[Mux Python] %(asctime)s %(levelname)s %(message)s")
+SSL_TARGET_HOST = os.environ.get("SSL_TARGET_HOST", "127.0.0.1")
+SSL_TARGET_PORT = int(os.environ.get("SSL_TARGET_PORT", "2443"))  # stunnel internal
+
+WS_TARGET_HOST = os.environ.get("WS_MUX_TARGET_HOST", "127.0.0.1")
+WS_TARGET_PORT = int(os.environ.get("WS_MUX_TARGET_PORT", "8880"))  # ws-proxy internal
+
+TLS_HANDSHAKE_BYTE = 0x16
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="[mux] %(asctime)s %(levelname)s %(message)s",
+)
 log = logging.getLogger("mux")
 
 
-def tune(writer):
-    sock = writer.get_extra_info("socket")
-    if sock is not None:
-        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-
-
-async def pump(reader, writer):
+async def pipe(src: asyncio.StreamReader, dst: asyncio.StreamWriter):
     try:
         while True:
-            data = await reader.read(65536)
+            data = await src.read(65536)
             if not data:
                 break
-            writer.write(data)
-            await writer.drain()
-    except (ConnectionError, asyncio.CancelledError):
+            dst.write(data)
+            await dst.drain()
+    except (ConnectionResetError, asyncio.IncompleteReadError):
         pass
+    except Exception as e:
+        log.debug("pipe error: %s", e)
+    finally:
+        try:
+            dst.close()
+        except Exception:
+            pass
 
 
-async def handle(client_reader, client_writer):
-    peer = client_writer.get_extra_info("peername")
-    backend_writer = None
+async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+    peer = writer.get_extra_info("peername")
+
     try:
-        first = await asyncio.wait_for(client_reader.read(1), timeout=15)
-        if not first:
+        # Intip byte pertama tanpa membuang data (tetap kita simpan untuk diteruskan)
+        first_byte = await reader.read(1)
+        if not first_byte:
+            writer.close()
             return
 
-        if first[0] == 0x16:
-            host, port, label = SSL_HOST, SSL_PORT, "TLS/stunnel"
+        if first_byte[0] == TLS_HANDSHAKE_BYTE:
+            target_host, target_port, label = SSL_TARGET_HOST, SSL_TARGET_PORT, "SSL/stunnel"
         else:
-            host, port, label = WS_HOST, WS_PORT, "WS/SSH"
+            target_host, target_port, label = WS_TARGET_HOST, WS_TARGET_PORT, "WS"
 
-        # Connect based on the first byte, then forward it and all subsequent
-        # bytes unchanged. No HTTP path/header inspection is performed.
-        backend_reader, backend_writer = await asyncio.wait_for(
-            asyncio.open_connection(host, port), timeout=10
+        log.info("Koneksi %s dikenali sebagai %s -> %s:%s", peer, label, target_host, target_port)
+
+        try:
+            target_reader, target_writer = await asyncio.open_connection(target_host, target_port)
+        except Exception as e:
+            log.error("Gagal konek ke backend %s -> %s:%s : %s", label, target_host, target_port, e)
+            writer.close()
+            return
+
+        # Kirim dulu byte pertama yang sudah kita intip, baru relay dua arah
+        target_writer.write(first_byte)
+        await target_writer.drain()
+
+        await asyncio.gather(
+            pipe(reader, target_writer),
+            pipe(target_reader, writer),
         )
-        tune(client_writer)
-        tune(backend_writer)
-        backend_writer.write(first)
-        await backend_writer.drain()
-        log.info("%s -> %s %s:%s", peer, label, host, port)
 
-        up = asyncio.create_task(pump(client_reader, backend_writer))
-        down = asyncio.create_task(pump(backend_reader, client_writer))
-        done, pending = await asyncio.wait((up, down), return_when=asyncio.FIRST_COMPLETED)
-        for task in pending:
-            task.cancel()
-        await asyncio.gather(*pending, return_exceptions=True)
-    except (asyncio.TimeoutError, ConnectionError, OSError) as exc:
-        log.warning("Connection %s: %s", peer, exc)
+    except Exception as e:
+        log.error("Error menangani klien %s: %s", peer, e)
     finally:
-        for writer in (backend_writer, client_writer):
-            if writer is not None:
-                writer.close()
-                try:
-                    await writer.wait_closed()
-                except Exception:
-                    pass
+        try:
+            writer.close()
+        except Exception:
+            pass
 
 
 async def main():
-    server = await asyncio.start_server(handle, HOST, PORT, limit=65536)
-    log.info("Pure Traffic Splitter Active on %s:%s (TLS=%s, WS=%s)", HOST, PORT, SSL_PORT, WS_PORT)
+    server = await asyncio.start_server(handle_client, LISTEN_HOST, LISTEN_PORT)
+    log.info(
+        "Mux jalan di %s:%s -> SSL:%s:%s | WS:%s:%s",
+        LISTEN_HOST, LISTEN_PORT,
+        SSL_TARGET_HOST, SSL_TARGET_PORT,
+        WS_TARGET_HOST, WS_TARGET_PORT,
+    )
     async with server:
         await server.serve_forever()
 
 
+def handle_sigterm(*_):
+    sys.exit(0)
+
+
 if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, handle_sigterm)
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
