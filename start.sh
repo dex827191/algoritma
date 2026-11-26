@@ -221,7 +221,7 @@ fi
 # =================================================================
 # Panel/API and Go TCP entrypoint
 # =================================================================
-PANEL_PORT="${PANEL_PORT:-3000}" node /app/server.cjs >/tmp/panel-api.log 2>&1 &
+PANEL_PORT="${PANEL_PORT:-3001}" node /app/server.cjs >/tmp/panel-api.log 2>&1 &
 sleep 1
 if ! kill -0 "$!" 2>/dev/null; then
   echo "[FATAL] Panel API gagal start" >&2
@@ -233,5 +233,5 @@ if [[ ! -x "$WRAPPER_BIN" ]]; then
   echo "[FATAL] Proxy wrapper tidak ditemukan: $WRAPPER_BIN" >&2
   exit 1
 fi
-echo "[*] Starting Go proxy wrapper (HTTP/UI -> Node 127.0.0.1:3000, Xray -> Nginx 127.0.0.1:8081)..."
+echo "[*] Starting Go proxy wrapper (UI/API -> Node 127.0.0.1:3001, SSH/Xray paths -> Nginx 127.0.0.1:8081)..."
 exec "$WRAPPER_BIN"

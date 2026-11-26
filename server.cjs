@@ -9,7 +9,7 @@ const crypto = require('crypto');
 const { execFileSync, exec } = require('child_process');
 
 const DATA_DIR = process.env.DATA_DIR || process.env.FILE_PATH || path.join(__dirname, 'data');
-const PORT = Number(process.env.PANEL_PORT || 3000);
+const PORT = Number(process.env.PANEL_PORT || 3001);
 const DB_FILE = path.join(DATA_DIR, 'ssh_accounts.json');
 const XRAY_DB_FILE = path.join(DATA_DIR, 'xray_accounts.json');
 const XRAY_CONFIG_FILE = process.env.XRAY_CONFIG || path.join(DATA_DIR, 'config.json');

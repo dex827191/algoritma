@@ -101,7 +101,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM ubuntu:22.04 AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
 ENV NODE_ENV=production
-ENV PANEL_PORT=3000
+ENV PANEL_PORT=3001
 WORKDIR /app
 
 # ── Paket sistem ──
@@ -213,5 +213,5 @@ RUN ln -sf /dev/stdout /var/log/nginx/access.log \
 
 RUN chmod +x /app/start.sh /usr/local/bin/proxy-wrapper
 
-EXPOSE 8080 8081 3000 8880 7300
+EXPOSE 3000 3001 8081 8880 7300
 CMD ["bash", "/app/start.sh"]
