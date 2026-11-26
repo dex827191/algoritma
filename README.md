@@ -35,3 +35,11 @@ Build dan jalankan dengan Docker. Disarankan menambahkan autentikasi/API token d
 - `ENABLE_BBR=true` mengaktifkan BBR; nilai selain `true` memakai cubic. Perubahan sysctl dicoba saat container mulai. Pada container tanpa izin kernel yang sesuai, pengaturan dapat ditolak dan dilewati.
 - `CUSTOM_BANNER` (opsional) mengganti banner default. Banner ditulis ke `/etc/dropbear/banner`. Dropbear menampilkan isi file sebagai teks terminal; markup HTML tidak dirender sebagai HTML.
 - `NET_BIN` (default `/usr/local/bin/badvpn-udpgw`) menunjuk binary `badvpn-udpgw`. `UDPGW_PORT` default `7300`, `UDPGW_MAX_CLIENTS` default `250`. Worker hanya dijalankan jika binary tersedia dan executable. Binary badvpn-udpgw tidak dibundel di ZIP ini.
+
+
+## SSH WebSocket (WSS)
+- Path SSH WebSocket: `/ssh` (URL: `wss://DOMAIN/ssh`, port 443).
+- Pada Cloudflare Zero Trust Tunnel, buat Public Hostname dengan service `http://localhost:8081` (Nginx). Jangan arahkan hostname HTTPS panel ke port mux `8881`.
+- Nginx meneruskan `/ssh` ke `ws-proxy.py` pada port internal `8880`; `/` tetap ke panel, sedangkan path Xray diteruskan sesuai `nginx.conf`.
+- Mux `8881` tetap merupakan splitter TCP mentah untuk trafik TLS/non-TLS; ia bukan endpoint HTTPS untuk panel dan WSS berbasis path.
+- Username SSH yang diketik dengan huruf besar otomatis dinormalisasi ke huruf kecil karena akun sistem Linux dibuat lowercase.
