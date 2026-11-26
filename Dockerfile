@@ -46,8 +46,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # =================================================================
 FROM ubuntu:22.04 AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
-ENV NODE_ENV=production
-ENV PANEL_PORT=3000
+ENV PANEL_PORT=2053
 WORKDIR /app
 
 # ── Paket sistem ──
@@ -68,13 +67,10 @@ RUN rm -rf /var/lib/apt/lists/* \
         curl \
         wget \
         unzip \
+        python3 \
  && rm -rf /var/lib/apt/lists/*
 
 
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
- && apt-get install -y --no-install-recommends nodejs \
- && apt-get clean \
- && rm -rf /var/lib/apt/lists/*
 
 ARG TARGETARCH
 RUN case "${TARGETARCH}" in \
@@ -119,9 +115,8 @@ RUN mkdir -p /etc/dropbear && \
     || (echo "❌ Gagal membuat dropbear host key!" && exit 1)
 
 # ── App code ──
-COPY server.js ./server.js
+COPY server.py ./server.py
 COPY index.html ./index.html
-COPY package.json ./package.json
 COPY start.sh ./
 
 COPY data/ ./data/
@@ -140,5 +135,5 @@ RUN ln -sf /dev/stdout /var/log/nginx/access.log \
 
 RUN chmod +x /app/start.sh /usr/local/bin/proxy-wrapper
 
-EXPOSE 8080 8081 3000 8880 7300
+EXPOSE 8080 8081 2053 8880 7300
 CMD ["bash", "/app/start.sh"]

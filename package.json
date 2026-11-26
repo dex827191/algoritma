@@ -1,8 +1,0 @@
-{
-  "name": "server-panel-standalone",
-  "version": "1.0.0",
-  "private": true,
-  "description": "Panel server dengan HTML, CSS, dan JavaScript vanilla tanpa build tool",
-  "main": "server.js",
-  "scripts": { "start": "node server.js" }
-}
