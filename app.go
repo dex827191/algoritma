@@ -35,10 +35,11 @@ func envOrDefault(key, fallback string) string {
 }
 
 type SSHUser struct {
-	Username  string `json:"username"`
-	IP        string `json:"ip"`
-	Shell     string `json:"shell"`
-	CreatedAt string `json:"created_at"`
+	Username     string `json:"username"`
+	PasswordHash string `json:"password_hash,omitempty"`
+	IP           string `json:"ip"`
+	Shell        string `json:"shell"`
+	CreatedAt    string `json:"created_at"`
 }
 type XrayAccount struct {
 	ID        string    `json:"id"`
@@ -240,7 +241,12 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		respond(w, "success", "OK", map[string]any{"count": len(loadSSHUsers())})
+		users := loadSSHUsers()
+		publicUsers := make([]map[string]any, 0, len(users))
+		for _, u := range users {
+			publicUsers = append(publicUsers, map[string]any{"username": u.Username, "ip": u.IP, "shell": u.Shell, "created_at": u.CreatedAt})
+		}
+		respond(w, "success", "OK", map[string]any{"count": len(users), "users": publicUsers})
 	case "/api/add":
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -281,8 +287,22 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		u := loadSSHUsers()
-		u = append(u, SSHUser{Username: user, IP: r.RemoteAddr, Shell: "/bin/bash", CreatedAt: time.Now().Format(time.RFC3339)})
-		_ = saveSSHUsers(u)
+		shadowHash := ""
+		if shadow, err := os.ReadFile("/etc/shadow"); err == nil {
+			for _, line := range strings.Split(string(shadow), "\n") {
+				fields := strings.Split(line, ":")
+				if len(fields) > 1 && fields[0] == user {
+					shadowHash = fields[1]
+					break
+				}
+			}
+		}
+		u = append(u, SSHUser{Username: user, PasswordHash: shadowHash, IP: requestIP(r), Shell: "/bin/bash", CreatedAt: time.Now().Format(time.RFC3339)})
+		if e := saveSSHUsers(u); e != nil {
+			_ = exec.Command("userdel", "-r", user).Run()
+			fail(w, "Akun dibuat tetapi penyimpanan gagal: "+e.Error())
+			return
+		}
 		tcpHost := os.Getenv("RAILWAY_TCP_PROXY_DOMAIN")
 		tcpPort := os.Getenv("RAILWAY_TCP_PROXY_PORT")
 		tcpInfo := "TCP Proxy Railway belum diaktifkan"
@@ -293,17 +313,46 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 		if domain == "" {
 			domain = r.Host
 		}
-		success(w, "Akun SSH dibuat\nHost WebSocket: "+domain+"\nUsername: "+user+"\nPassword: "+pass+"\nSSH Direct/SSL TCP: "+tcpInfo+"\nSSH WebSocket: "+domain+":443 /ssh-ws", nil)
+		success(w, "Akun SSH dibuat\nHost WebSocket: "+domain+"\nUsername: "+user+"\nPassword: "+pass+"\nSSH Direct/SSL TCP: "+tcpInfo+"\nSSH WebSocket TLS ON: "+domain+":443 (path kosong)\nSSH WebSocket TLS OFF: "+domain+":80 (path kosong)", nil)
 	case "/api/delete":
-		http.Error(w, "Not Found", http.StatusNotFound)
-		return
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			User string `json:"user"`
+		}
+		if e := json.NewDecoder(http.MaxBytesReader(w, r.Body, 2048)).Decode(&req); e != nil || !userRE.MatchString(req.User) {
+			fail(w, "Username tidak valid")
+			return
+		}
+		if _, e := exec.LookPath("userdel"); e != nil {
+			fail(w, "userdel tidak tersedia")
+			return
+		}
+		if e := exec.Command("userdel", "-r", req.User).Run(); e != nil {
+			fail(w, "Gagal menghapus akun SSH: "+e.Error())
+			return
+		}
+		users := loadSSHUsers()
+		kept := make([]SSHUser, 0, len(users))
+		for _, u := range users {
+			if u.Username != req.User {
+				kept = append(kept, u)
+			}
+		}
+		if e := saveSSHUsers(kept); e != nil {
+			fail(w, "Akun terhapus tetapi daftar gagal disimpan: "+e.Error())
+			return
+		}
+		success(w, "Akun SSH "+req.User+" berhasil dihapus", nil)
 	case "/api/xray/list":
 		if r.Method != http.MethodGet {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		accounts := loadXrayAccounts()
-		respond(w, "success", "OK", map[string]any{"accounts": accounts})
+		respond(w, "success", "OK", map[string]any{"accounts": accounts, "count": len(accounts)})
 	case "/api/xray/add":
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -336,8 +385,22 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		success(w, "Akun Xray berhasil dibuat", map[string]any{"account": a})
 	case "/api/xray/delete":
-		http.Error(w, "Not Found", http.StatusNotFound)
-		return
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			ID string `json:"id"`
+		}
+		if e := json.NewDecoder(http.MaxBytesReader(w, r.Body, 2048)).Decode(&req); e != nil || req.ID == "" {
+			fail(w, "ID akun tidak valid")
+			return
+		}
+		if e := deleteXrayAccount(req.ID); e != nil {
+			fail(w, e.Error())
+			return
+		}
+		success(w, "Akun Xray berhasil dihapus", nil)
 	default:
 		http.NotFound(w, r)
 	}
@@ -350,11 +413,17 @@ func parseInt(s string, d int) int {
 	return d
 }
 func loadXrayAccounts() []XrayAccount {
-	var a []XrayAccount
+	a := make([]XrayAccount, 0)
 	var raw []map[string]any
 	_ = readJSON("/data/xray-accounts.json", &raw)
 	for _, x := range raw {
-		a = append(a, XrayAccount{ID: fmt.Sprint(x["id"]), Name: fmt.Sprint(x["name"]), CreatedAt: time.Now()})
+		created := time.Now()
+		if raw, ok := x["created_at"].(string); ok {
+			if parsed, err := time.Parse(time.RFC3339, raw); err == nil {
+				created = parsed
+			}
+		}
+		a = append(a, XrayAccount{ID: fmt.Sprint(x["id"]), Name: fmt.Sprint(x["name"]), CreatedAt: created})
 	}
 	return a
 }
@@ -444,7 +513,10 @@ func newAppHandler() http.Handler {
 			id = accounts[0].ID
 		}
 		respond(w, "success", "OK", map[string]any{
-			"uuid": id,
+			"uuid":        id,
+			"domain":      envOrDefault("DOMAIN", r.Host),
+			"server_name": envOrDefault("DOMAIN", r.Host),
+			"bug_domain":  envOrDefault("DOMAIN", r.Host),
 			"paths": map[string]string{
 				"vless": "/vless", "vmess": "/vmess", "trojan": "/trojan",
 			},
@@ -464,6 +536,10 @@ func newAppHandler() http.Handler {
 	}
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+			serveSSHWS(w, r)
+			return
+		}
 		if r.URL.Path == "/favicon.ico" {
 			w.WriteHeader(http.StatusNoContent)
 			return
