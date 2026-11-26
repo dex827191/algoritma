@@ -196,15 +196,14 @@ COPY config.json /app/config.json
 COPY start.sh /app/start.sh
 
 
+
 # =========================================================
 # FIX START.SH FORMAT
-# =========================================================
+# =========================
 RUN set -eux; \
     sed -i 's/\r$//' /app/start.sh; \
     chmod 0755 /app/start.sh; \
-    test -s /app/start.sh; \
-    head -n 1 /app/start.sh | grep -q '^#!/bin/sh'
-
+    /bin/sh -n /app/start.sh
 
 # =========================================================
 # PERSISTENT DATA
