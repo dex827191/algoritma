@@ -8,12 +8,7 @@
       "port": 18080,
       "protocol": "vless",
       "settings": {
-        "clients": [
-          {
-            "id": "9f4c2d7e-6a31-4b8c-9d52-7e1a3f6b0c84",
-            "level": 0
-          }
-        ],
+        "clients": [],
         "decryption": "none"
       },
       "streamSettings": {
@@ -31,12 +26,7 @@
       "port": 18081,
       "protocol": "vless",
       "settings": {
-        "clients": [
-          {
-            "id": "9f4c2d7e-6a31-4b8c-9d52-7e1a3f6b0c84",
-            "level": 0
-          }
-        ],
+        "clients": [],
         "decryption": "none"
       },
       "streamSettings": {
@@ -53,12 +43,7 @@
       "port": 18082,
       "protocol": "vless",
       "settings": {
-        "clients": [
-          {
-            "id": "9f4c2d7e-6a31-4b8c-9d52-7e1a3f6b0c84",
-            "level": 0
-          }
-        ],
+        "clients": [],
         "decryption": "none"
       },
       "streamSettings": {
@@ -75,12 +60,7 @@
       "port": 18083,
       "protocol": "vmess",
       "settings": {
-        "clients": [
-          {
-            "id": "9f4c2d7e-6a31-4b8c-9d52-7e1a3f6b0c84",
-            "alterId": 0
-          }
-        ]
+        "clients": []
       },
       "streamSettings": {
         "network": "xhttp",
@@ -97,12 +77,7 @@
       "port": 18084,
       "protocol": "vmess",
       "settings": {
-        "clients": [
-          {
-            "id": "9f4c2d7e-6a31-4b8c-9d52-7e1a3f6b0c84",
-            "alterId": 0
-          }
-        ]
+        "clients": []
       },
       "streamSettings": {
         "network": "httpupgrade",
@@ -118,12 +93,7 @@
       "port": 18085,
       "protocol": "vmess",
       "settings": {
-        "clients": [
-          {
-            "id": "9f4c2d7e-6a31-4b8c-9d52-7e1a3f6b0c84",
-            "alterId": 0
-          }
-        ]
+        "clients": []
       },
       "streamSettings": {
         "network": "ws",
@@ -139,11 +109,7 @@
       "port": 18086,
       "protocol": "trojan",
       "settings": {
-        "clients": [
-          {
-            "password": "9f4c2d7e-6a31-4b8c-9d52-7e1a3f6b0c84"
-          }
-        ]
+        "clients": []
       },
       "streamSettings": {
         "network": "xhttp",
@@ -160,11 +126,7 @@
       "port": 18087,
       "protocol": "trojan",
       "settings": {
-        "clients": [
-          {
-            "password": "9f4c2d7e-6a31-4b8c-9d52-7e1a3f6b0c84"
-          }
-        ]
+        "clients": []
       },
       "streamSettings": {
         "network": "httpupgrade",
@@ -180,11 +142,7 @@
       "port": 18088,
       "protocol": "trojan",
       "settings": {
-        "clients": [
-          {
-            "password": "9f4c2d7e-6a31-4b8c-9d52-7e1a3f6b0c84"
-          }
-        ]
+        "clients": []
       },
       "streamSettings": {
         "network": "ws",
