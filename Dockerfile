@@ -1,3 +1,4 @@
+
 # =========================================================
 # STAGE 1: GO BUILDER
 # =========================================================
@@ -11,6 +12,7 @@ WORKDIR /src
 COPY proxy_wrapper.go app.go wsproxy.go ./
 
 RUN set -eux; \
+    mkdir -p /out; \
     GOOS="${TARGETOS:-linux}"; \
     GOARCH="${TARGETARCH:-amd64}"; \
     CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" \
@@ -37,11 +39,7 @@ WORKDIR /app
 
 
 # =========================================================
-<<<<<<< HEAD
-# SYSTEM PACKAGES
-=======
 # SYSTEM DEPENDENCIES
->>>>>>> 6f4f006 (Update)
 # =========================================================
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -51,6 +49,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xz-utils \
     tar \
     bash \
+    jq \
+    passwd \
     socat \
     openssl \
     net-tools \
@@ -61,18 +61,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     supervisor \
     nginx \
     dropbear \
-<<<<<<< HEAD
-=======
     stunnel4 \
->>>>>>> 6f4f006 (Update)
     build-essential \
     cmake \
     git \
     pkg-config \
     libssl-dev \
     zlib1g-dev \
-<<<<<<< HEAD
-=======
     && mkdir -p \
        /etc/stunnel \
        /var/run/stunnel \
@@ -80,7 +75,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
        /var/run/dropbear \
        /data \
     && chmod 0755 /etc/stunnel \
->>>>>>> 6f4f006 (Update)
     && rm -rf /var/lib/apt/lists/*
 
 
@@ -107,11 +101,7 @@ RUN set -eux; \
 
 
 # =========================================================
-<<<<<<< HEAD
-# COPY GO BINARIES
-=======
 # GO APPLICATION BINARIES
->>>>>>> 6f4f006 (Update)
 # =========================================================
 COPY --from=gobuild /out/mux /usr/local/bin/mux
 COPY --from=gobuild /out/ssh-wsproxy /usr/local/bin/ssh-wsproxy
@@ -164,24 +154,12 @@ RUN set -eux; \
     UDPGW_BIN="$(find /tmp/badvpn-build -type f -name badvpn-udpgw -perm /111 -print -quit)"; \
     test -n "$UDPGW_BIN"; \
     install -m 0755 "$UDPGW_BIN" /usr/local/bin/badvpn-udpgw; \
-<<<<<<< HEAD
-    /usr/local/bin/badvpn-udpgw --version || true; \
-=======
->>>>>>> 6f4f006 (Update)
     rm -rf /tmp/badvpn /tmp/badvpn-build
 
 
 # =========================================================
 # DROPBEAR BANNER
 # =========================================================
-<<<<<<< HEAD
-RUN mkdir -p \
-    /etc/dropbear \
-    /var/run/dropbear \
-    /data
-
-=======
->>>>>>> 6f4f006 (Update)
 RUN printf '%s\n' \
 '=================================================' \
 '                  SELAMAT MENIKMATI' \
@@ -194,16 +172,17 @@ RUN printf '%s\n' \
 
 
 # =========================================================
-<<<<<<< HEAD
-=======
 # STUNNEL DIRECTORIES
 # =========================================================
-RUN mkdir -p /etc/stunnel /var/run/stunnel \
-    && chmod 0755 /etc/stunnel
+RUN mkdir -p \
+    /etc/stunnel \
+    /var/run/stunnel \
+    /etc/dropbear \
+    /var/run/dropbear \
+    /data
 
 
 # =========================================================
->>>>>>> 6f4f006 (Update)
 # NGINX CONFIGURATION
 # =========================================================
 COPY nginx.conf /etc/nginx/nginx.conf
@@ -216,30 +195,24 @@ COPY index.html /app/index.html
 COPY config.json /app/config.json
 COPY start.sh /app/start.sh
 
-RUN chmod 0755 /app/start.sh
 
 
 # =========================================================
-<<<<<<< HEAD
-# DATA DIRECTORY
+# FIX START.SH FORMAT
+# =========================
+RUN set -eux; \
+    sed -i 's/\r$//' /app/start.sh; \
+    chmod 0755 /app/start.sh; \
+    /bin/sh -n /app/start.sh
+
 # =========================================================
-RUN mkdir -p /data \
-    && chmod 0755 /data
-=======
 # PERSISTENT DATA
 # =========================================================
-RUN mkdir -p /data
->>>>>>> 6f4f006 (Update)
-
 VOLUME ["/data"]
 
 
 # =========================================================
-<<<<<<< HEAD
 # PORTS
-=======
-# EXPOSE PORTS
->>>>>>> 6f4f006 (Update)
 # =========================================================
 EXPOSE 8080
 EXPOSE 22
@@ -248,6 +221,6 @@ EXPOSE 7300
 
 
 # =========================================================
-# START APPLICATION
+# START CONTAINER
 # =========================================================
-CMD ["/app/start.sh"]
+CMD ["/bin/sh", "/app/start.sh"]
