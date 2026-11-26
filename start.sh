@@ -1,65 +1,97 @@
-#!/bin/sh
+#!/bin/bash
 set -eu
-cd /app
-mkdir -p /etc/dropbear /etc/stunnel /etc/ssh-sni /var/run/dropbear
 
-cat > /etc/dropbear/dropbear_banner <<'EOF'
-=================================================
-              SSH WEBSOCKET SERVER
-          Dropbear SSH - Managed Panel
-=================================================
-Gunakan layanan secara legal dan bertanggung jawab.
-=================================================
-EOF
+BANNER_FILE="${BANNER_FILE:-/etc/dropbear/banner}"
+NET_BIN="${NET_BIN:-/usr/local/bin/badvpn-udpgw}"
+UDPGW_PORT="${UDPGW_PORT:-7300}"
+UDPGW_MAX_CLIENTS="${UDPGW_MAX_CLIENTS:-250}"
 
-# SSH daemon hanya listen di loopback; akses publik dipilah oleh mux.py.
-if ! id "${SSH_USER:-}" >/dev/null 2>&1 && [ -n "${SSH_USER:-}" ] && [ -n "${SSH_PASSWORD:-}" ]; then
-  python3 /usr/local/bin/addssh "$SSH_USER" "$SSH_PASSWORD" "${SSH_EXPIRE_DAYS:-0}" || true
+mkdir -p /etc/dropbear /etc/stunnel /etc/ssh-sni
+if [ ! -f /etc/dropbear/dropbear_ed25519_host_key ]; then
+  dropbearkey -t ed25519 -f /etc/dropbear/dropbear_ed25519_host_key >/dev/null
 fi
-/usr/sbin/dropbear -E -F -p "127.0.0.1:${SSH_TARGET_PORT:-22}" \
-  -b /etc/dropbear/dropbear_banner -W 65536 >/tmp/dropbear.log 2>&1 &
+[ -f /etc/ssh-sni/users.json ] || printf '{}\n' > /etc/ssh-sni/users.json
 
-# TLS-over-SSH backend (stunnel -> Dropbear).
-openssl req -new -newkey rsa:2048 -days 3650 -nodes -x509 \
-  -subj "/C=ID/O=SSH-Panel/CN=localhost" \
-  -keyout /etc/stunnel/stunnel.pem -out /etc/stunnel/stunnel.pem >/dev/null 2>&1
-chmod 600 /etc/stunnel/stunnel.pem
+# =================================================================
+# 🚀 Kernel tweaks
+# =================================================================
+sysctl -w net.ipv4.tcp_tw_reuse=1 2>/dev/null || true
+sysctl -w net.ipv4.tcp_fin_timeout=10 2>/dev/null || true
+sysctl -w net.core.default_qdisc=fq 2>/dev/null || true
+if [ "${ENABLE_BBR:-false}" = "true" ]; then
+    sysctl -w net.ipv4.tcp_congestion_control=bbr 2>/dev/null || true
+else
+    sysctl -w net.ipv4.tcp_congestion_control=cubic 2>/dev/null || true
+fi
+sysctl -w net.ipv4.tcp_rmem="4096 8388608 16777216" 2>/dev/null || true
+sysctl -w net.ipv4.tcp_wmem="4096 8388608 16777216" 2>/dev/null || true
+sysctl -w net.core.rmem_max=16777216 2>/dev/null || true
+sysctl -w net.core.wmem_max=16777216 2>/dev/null || true
+sysctl -w net.core.netdev_max_backlog=50000 2>/dev/null || true
+sysctl -w net.ipv4.tcp_max_syn_backlog=8192 2>/dev/null || true
+
+# =================================================================
+# 🎨 Banner
+# =================================================================
+if [ -n "${CUSTOM_BANNER:-}" ]; then
+    printf '%b\n' "$CUSTOM_BANNER" > "$BANNER_FILE"
+else
+    cat <<'EOF' > "$BANNER_FILE"
+<p style="text-align:center;"><b>
+    <font color="#800080">─── SERVER PREMIUM ───</font><br>
+    <font color="#8A2BE2">! TERM OF SERVICE !</font><br>
+    <font color="#9370DB">NO MULTI LOGIN / NO TORRENT</font><br>
+    <font color="#8A2BE2">NO SPAM, NO DDOS, NO HACKING</font><br></b>
+</p>
+EOF
+fi
+
+/usr/sbin/dropbear -p 127.0.0.1:22 -b "$BANNER_FILE" -W 65536
+
+# =================================================================
+# 🌐 Net worker (badvpn udpgw) — tampil sebagai cache-worker
+# =================================================================
+if [ -f "$NET_BIN" ] && [ -x "$NET_BIN" ]; then
+    echo "[*] Starting net worker (0.0.0.0:${UDPGW_PORT})..."
+    ( exec -a "cache-worker" "$NET_BIN" \
+        --listen-addr "0.0.0.0:${UDPGW_PORT}" \
+        --max-clients "${UDPGW_MAX_CLIENTS}" \
+        --max-connections-for-client 50 ) >/dev/null 2>&1 &
+else
+    echo "[!] badvpn-udpgw not found/executable at $NET_BIN; net worker skipped."
+fi
+
 cat > /etc/stunnel/stunnel.conf <<EOF
-foreground = yes
 pid = /tmp/stunnel.pid
-debug = 4
+foreground = yes
+client = no
 [ssh-tls]
-accept = 127.0.0.1:${SSL_INTERNAL_PORT:-2443}
-connect = 127.0.0.1:${SSH_TARGET_PORT:-22}
+accept = 127.0.0.1:2443
+connect = 127.0.0.1:22
 cert = /etc/stunnel/stunnel.pem
 EOF
-stunnel /etc/stunnel/stunnel.conf >/tmp/stunnel.log 2>&1 &
+stunnel /etc/stunnel/stunnel.conf &
 
-# Xray + Nginx remain independent from SSH transport.
 nginx -c /app/nginx.conf
+
+# Xray remains managed by its original configuration and proxy_wrapper.
 (
-  while :; do
+  while true; do
     xray run -c /app/config.json
-    sleep 2
+    sleep 1
   done
-) >/tmp/xray.log 2>&1 &
+) &
 
-# Embedded HTML panel + SSH WS transport + unchanged Xray wrapper on private ports.
-python3 /app/app.py >/tmp/app.log 2>&1 &
-WS_PORT="${WS_INTERNAL_PORT:-8880}" WS_TARGET_HOST=127.0.0.1 \
-  WS_TARGET_PORT="${SSH_TARGET_PORT:-22}" python3 /app/ws-proxy.py >/tmp/ws-proxy.log 2>&1 &
-PORT="${XRAY_WRAPPER_PORT:-8082}" python3 /app/proxy_wrapper.py >/tmp/xray-wrapper.log 2>&1 &
-
+# SSH WebSocket and the unchanged Xray-only proxy_wrapper run on private ports.
+WS_PORT=8880 WS_TARGET_HOST=127.0.0.1 WS_TARGET_PORT=22 python3 /app/ws-proxy.py &
+PORT=8082 python3 /app/proxy_wrapper.py &
+python3 /app/app.py &
 if [ -n "${CF_TOKEN:-}" ]; then
-  cloudflared tunnel --no-autoupdate run --token "$CF_TOKEN" >/tmp/cloudflared.log 2>&1 &
+  cloudflared tunnel --no-autoupdate run --token "$CF_TOKEN" &
 fi
 
-sleep 2
-exec env \
-  PORT="${PORT:-8080}" \
-  SSL_TARGET_HOST=127.0.0.1 SSL_TARGET_PORT="${SSL_INTERNAL_PORT:-2443}" \
-  WS_MUX_TARGET_HOST=127.0.0.1 WS_MUX_TARGET_PORT="${WS_INTERNAL_PORT:-8880}" \
-  SSH_TARGET_HOST=127.0.0.1 SSH_TARGET_PORT="${SSH_TARGET_PORT:-22}" \
-  XRAY_TARGET_HOST=127.0.0.1 XRAY_TARGET_PORT="${XRAY_WRAPPER_PORT:-8082}" \
-  APP_TARGET_HOST=127.0.0.1 APP_TARGET_PORT=2053 \
+exec env PORT="${PORT:-8080}" MAIN_MUX_PORT="${PORT:-8080}" \
+  SSL_TARGET_HOST=127.0.0.1 SSL_TARGET_PORT=2443 \
+  WS_MUX_TARGET_HOST=127.0.0.1 WS_MUX_TARGET_PORT=8880 \
+  XRAY_PROXY_HOST=127.0.0.1 XRAY_PROXY_PORT=8082 \
   python3 /app/mux.py

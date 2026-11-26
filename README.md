@@ -1,25 +1,37 @@
-# Combined SSH + Xray Panel
+# Nginx Proxy App + SSH API
 
-## Komponen
-- `app.py`: API panel + menyajikan UI dari `index.html` yang di-embed sebagai asset container.
-- `addssh`, `delssh`, `listssh`: utilitas manajemen akun SSH dari `ssh.zip`; endpoint panel memakai `addssh`/`delssh`.
-- `ws-proxy.py`: transport SSH WebSocket ke Dropbear internal.
-- `mux.py`: satu listener publik; memisahkan TLS SSH, raw SSH, SSH WebSocket, dan path Xray.
-- `proxy_wrapper.py`: tetap khusus Xray dan tidak diubah.
-- `nginx.conf` + `config.json`: backend inbound Xray.
+Gabungan panel web (HTML tertanam langsung di `app.py`), Xray, dan SSH Dropbear.
 
-## Deploy
-Build image dari folder ini, lalu jalankan dengan port TCP publik 8080 (atau set `PORT`).
-Disarankan set `DOMAIN` ke domain publik yang dipakai untuk membuat link Xray.
-Opsional:
-- `CF_TOKEN`: token Cloudflare Tunnel.
-- `SSH_USER` dan `SSH_PASSWORD`: membuat akun SSH awal saat container start.
-- `SSH_EXPIRE_DAYS`: masa aktif akun awal; `0` berarti tanpa expiry.
+## Jalur koneksi
+- Port publik `PORT` (default 8080) dijalankan oleh `mux.py`.
+- TLS mentah diarahkan ke stunnel -> Dropbear pada `127.0.0.1:22`.
+- HTTP WebSocket SSH diarahkan ke `ws-proxy.py` -> Dropbear.
+- Path Xray (`/xhttp`, `/vless`, `/vmess`, `/trojan`, dan varian HTTPUp/XHTTP) diarahkan ke `proxy_wrapper.py` (tetap khusus Xray), lalu Nginx dan Xray.
+- Panel dan API dijalankan oleh `app.py` pada port internal 2053 melalui Nginx.
 
-Panel web dilayani pada `/` oleh `app.py` port internal 2053 dan di-route oleh `mux.py` untuk request HTTP biasa (misalnya `http://domain:8080`). Koneksi TLS pada port publik yang sama diprioritaskan ke stunnel untuk SSH TLS; terminasi HTTPS untuk panel harus dilakukan oleh proxy/provider di depan service dan diteruskan ke origin sebagai HTTP.
-Akun SSH tambahan dapat dibuat dari menu **Buat Akun SSH**. Data metadata tersimpan di `/etc/ssh-sni/users.json`.
+## API SSH
+Semua API memakai JSON:
+- `GET /api/ssh/list`
+- `POST /api/ssh/add` body `{"user":"nama","pass":"password"}`
+- `POST /api/ssh/delete` body `{"user":"nama"}`
 
-## Catatan
-- Port publik harus berupa TCP passthrough untuk mendukung TLS/raw SSH dan WebSocket. Proxy HTTP-only tidak dapat membawa semua mode ini.
-- `proxy_wrapper.py` dipertahankan byte-for-byte dari project awal dan berjalan pada port privat 8082.
-- Sebelum penggunaan produksi, ganti kredensial awal, batasi akses panel/API melalui firewall atau autentikasi tambahan, dan uji konfigurasi domain/TLS sesuai provider.
+Alias kompatibilitas lama `/api/list`, `/api/add`, `/api/delete` juga tersedia.
+Pembuatan user memakai `useradd` + `chpasswd`; penghapusan memakai `userdel -r`.
+Data akun tersimpan di `/etc/ssh-sni/users.json`.
+
+## API Xray
+- `GET /api/xray/list`
+- `POST /api/xray/add` body `{"name":"nama"}`
+- `POST /api/xray/delete` body `{"id":"uuid"}`
+
+## Environment
+- `PORT`: port publik mux (default 8080)
+- `DOMAIN`: domain untuk link Xray (opsional)
+- `CF_TOKEN`: Cloudflare Tunnel token (opsional)
+
+Build dan jalankan dengan Docker. Disarankan menambahkan autentikasi/API token dan pembatasan akses sebelum panel diekspos ke internet publik; API SSH saat ini merupakan self-service tanpa autentikasi.
+
+## Optimasi kernel, banner, dan UDP gateway
+- `ENABLE_BBR=true` mengaktifkan BBR; nilai selain `true` memakai cubic. Perubahan sysctl dicoba saat container mulai. Pada container tanpa izin kernel yang sesuai, pengaturan dapat ditolak dan dilewati.
+- `CUSTOM_BANNER` (opsional) mengganti banner default. Banner ditulis ke `/etc/dropbear/banner`. Dropbear menampilkan isi file sebagai teks terminal; markup HTML tidak dirender sebagai HTML.
+- `NET_BIN` (default `/usr/local/bin/badvpn-udpgw`) menunjuk binary `badvpn-udpgw`. `UDPGW_PORT` default `7300`, `UDPGW_MAX_CLIENTS` default `250`. Worker hanya dijalankan jika binary tersedia dan executable. Binary badvpn-udpgw tidak dibundel di ZIP ini.

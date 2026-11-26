@@ -64,13 +64,8 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
     log.info("Koneksi masuk dari client: %s", peer)
 
     try:
-        # Baca tepat sampai akhir header; byte payload setelah header tetap
-        # berada di StreamReader buffer dan diteruskan ke backend SSH.
-        try:
-            raw_headers = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), timeout=10.0)
-        except (asyncio.TimeoutError, asyncio.IncompleteReadError, asyncio.LimitOverrunError):
-            writer.close()
-            return
+        # Membaca header awal dengan kapasitas muat besar (Anti-Overload)
+        raw_headers = await reader.read(8192)
         if not raw_headers:
             writer.close()
             return
