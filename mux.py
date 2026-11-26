@@ -8,6 +8,7 @@ PORT = int(os.environ.get("MAIN_MUX_PORT", os.environ.get("PORT", "8080")))
 TLS_HOST, TLS_PORT = os.getenv("SSL_TARGET_HOST","127.0.0.1"), int(os.getenv("SSL_TARGET_PORT","2443"))
 SSH_HOST, SSH_PORT = os.getenv("WS_MUX_TARGET_HOST","127.0.0.1"), int(os.getenv("WS_MUX_TARGET_PORT","8880"))
 XRAY_HOST, XRAY_PORT = os.getenv("XRAY_PROXY_HOST","127.0.0.1"), int(os.getenv("XRAY_PROXY_PORT","8082"))
+PANEL_HOST, PANEL_PORT = os.getenv("PANEL_HOST","127.0.0.1"), int(os.getenv("PANEL_PORT","8081"))
 XRAY_PATHS = ("/xhttp","/httpup","/vless","/vmess-xhttp","/vmess-httpup","/vmess",
               "/trojan-xhttp","/trojan-httpup","/trojan")
 logging.basicConfig(level=logging.INFO, format="[mux] %(asctime)s %(levelname)s %(message)s")
