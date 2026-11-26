@@ -186,11 +186,23 @@ func handleClient(client net.Conn) {
 		}
 
 		if !isXrayPath(path) {
-			response := []byte("HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: keep-alive\r\n\r\n")
-			if writeAll(client, response) != nil {
+			// HTTP biasa (UI, assets, API, login, dan halaman panel)
+			// harus diteruskan utuh ke Nginx. Jangan membalas 200 kosong.
+			upstream, dialErr := net.DialTimeout("tcp", net.JoinHostPort(nginxHost, nginxPort), 8*time.Second)
+			if dialErr != nil {
+				log.Printf("connect nginx for HTTP request %q: %v", path, dialErr)
+				_, _ = io.WriteString(client, "HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 17\r\nConnection: close\r\n\r\nNginx unavailable")
 				return
 			}
-			continue
+			if err := writeAll(upstream, rawHeader); err != nil {
+				_ = upstream.Close()
+				return
+			}
+			// clientReader mungkin sudah menyimpan body/request bytes berikutnya.
+			// Relay memakai reader tersebut agar byte yang sudah terbaca tidak hilang.
+			upstreamReader := bufio.NewReaderSize(upstream, 64*1024)
+			relay(clientReader, client, upstreamReader, upstream)
+			return
 		}
 
 		upstream, err := net.DialTimeout("tcp", net.JoinHostPort(nginxHost, nginxPort), 8*time.Second)
