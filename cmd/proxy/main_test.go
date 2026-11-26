@@ -23,6 +23,19 @@ func TestIsXrayPath(t *testing.T) {
 	}
 }
 
+func TestIsNginxWebSocketPath(t *testing.T) {
+	for _, path := range []string{"/ssh", "/ssh/", "/ssh-ws", "/ssh-ws/connect"} {
+		if !isNginxWebSocketPath(path) {
+			t.Errorf("expected Nginx WebSocket path %q to match", path)
+		}
+	}
+	for _, path := range []string{"/", "/api/stats", "/assets/app.js"} {
+		if isNginxWebSocketPath(path) {
+			t.Errorf("unexpected Nginx WebSocket path match for %q", path)
+		}
+	}
+}
+
 func TestBuildWebSocketRequest(t *testing.T) {
 	lines := []string{
 		"POST /vless?ed=256 HTTP/1.1",

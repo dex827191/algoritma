@@ -217,6 +217,44 @@ function readRequestBody(req) {
   });
 }
 
+const FRONTEND_DIR = path.join(__dirname, 'dist');
+const INLINE_FRONTEND_FILE = path.join(__dirname, 'frontend.html.cjs');
+const MIME_TYPES = {
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp', '.ico': 'image/x-icon', '.woff': 'font/woff',
+  '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.map': 'application/json; charset=utf-8'
+};
+function serveFrontend(req, res, pathname) {
+  if (pathname.startsWith('/api/')) return false;
+  let requested;
+  try { requested = decodeURIComponent(pathname); } catch (_) { return false; }
+  const relative = requested === '/' ? '' : requested.replace(/^\/+/, '');
+  let file = relative ? path.resolve(FRONTEND_DIR, relative) : '';
+  if (file && !file.startsWith(FRONTEND_DIR + path.sep)) return false;
+  try {
+    let body;
+    let contentType;
+    if (file && fs.existsSync(file) && fs.statSync(file).isFile()) {
+      body = fs.readFileSync(file);
+      contentType = MIME_TYPES[path.extname(file).toLowerCase()] || 'application/octet-stream';
+    } else {
+      if (!fs.existsSync(INLINE_FRONTEND_FILE)) throw new Error('frontend.html.cjs tidak ditemukan');
+      body = Buffer.from(require(INLINE_FRONTEND_FILE), 'utf8');
+      contentType = 'text/html; charset=utf-8';
+    }
+    res.writeHead(200, { 'Content-Type': contentType, 'Content-Length': body.length, 'Cache-Control': contentType.startsWith('text/html') ? 'no-cache' : 'public, max-age=31536000, immutable' });
+    return req.method === 'HEAD' ? res.end() : res.end(body);
+  } catch (error) {
+    console.error('[UI] Gagal menyajikan frontend:', error.message);
+    res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Frontend belum tersedia. Pastikan build dan inline-html.mjs berhasil.');
+    return true;
+  }
+}
+
 const server = http.createServer((req, res) => {
   const u = new URL(req.url, 'http://localhost');
   const q = u.searchParams;
@@ -316,11 +354,12 @@ const server = http.createServer((req, res) => {
     let active = 0; try { active = Number(execFileSync('sh', ['-c', "ss -tn state established '( sport = :22 )' | tail -n +2 | wc -l"], { encoding: 'utf8' }).trim()) || 0; } catch (_) {}
     return json(res, { pass_configured: !!getAdminPassword(), status: 'ONLINE', domain: process.env.DOMAIN || req.headers.host || '', railway_public: process.env.RAILWAY_PUBLIC_DOMAIN || 'Tidak Aktif', railway_sni: process.env.RAILWAY_TCP_PROXY_DOMAIN ? `${process.env.RAILWAY_TCP_PROXY_DOMAIN}:${process.env.RAILWAY_TCP_PROXY_PORT || ''}` : 'Tidak Aktif', ws_proxy_cfg: ws, sys_settings: sys, cpu_model: cpus[0]?.model || 'Unknown', ram_total: `${(os.totalmem()/1073741824).toFixed(2)} GB`, ram_used: `${((os.totalmem()-os.freemem())/1073741824).toFixed(2)} GB`, disk_usage: disk, uptime: `${(os.uptime()/3600).toFixed(2)} Hours`, ssh_online: String(active), user_list_details: active ? `${active} koneksi SSH aktif` : 'Semua user offline' });
   }
+  if (serveFrontend(req, res, u.pathname)) return;
   return text(res, 'Not Found', 404);
 });
 
 server.listen(PORT, '127.0.0.1', () => {
-  console.log(`[API] SSH/API server listening on 127.0.0.1:${PORT}`);
+  console.log(`[PANEL] UI + API server listening on 127.0.0.1:${PORT}`);
   migrateXrayAccounts();
   const summary = restoreAccounts();
   console.log(`[SSH] Restore: total=${summary.total}, created=${summary.restored}, existing=${summary.exists}, failed=${summary.failures.length}`);

@@ -233,5 +233,5 @@ if [[ ! -x "$WRAPPER_BIN" ]]; then
   echo "[FATAL] Proxy wrapper tidak ditemukan: $WRAPPER_BIN" >&2
   exit 1
 fi
-echo "[*] Starting Go proxy wrapper (0.0.0.0:8080 -> Nginx 127.0.0.1:8081)..."
+echo "[*] Starting Go proxy wrapper (HTTP/UI -> Node 127.0.0.1:3000, Xray -> Nginx 127.0.0.1:8081)..."
 exec "$WRAPPER_BIN"

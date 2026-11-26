@@ -18,6 +18,8 @@ const (
 	defaultPublicPort = "8080"
 	nginxHost         = "127.0.0.1"
 	nginxPort         = "8081"
+	panelHost         = "127.0.0.1"
+	panelPort         = "3000"
 )
 
 var (
@@ -40,6 +42,10 @@ func isXrayPath(path string) bool {
 		}
 	}
 	return false
+}
+
+func isNginxWebSocketPath(path string) bool {
+	return strings.HasPrefix(path, "/ssh-ws") || strings.HasPrefix(path, "/ssh")
 }
 
 func writeAll(w io.Writer, data []byte) error {
@@ -159,6 +165,49 @@ func relay(clientReader *bufio.Reader, client net.Conn, upstreamReader *bufio.Re
 	<-done
 }
 
+// proxyHTTPToPanel meneruskan HTTP mentah ke Node panel agar request, body,
+// keep-alive, dan Upgrade WebSocket non-Xray tetap utuh.
+func proxyHTTPToPanel(client net.Conn, clientReader *bufio.Reader, rawHeader []byte) {
+	upstream, err := net.DialTimeout("tcp", net.JoinHostPort(panelHost, panelPort), 8*time.Second)
+	if err != nil {
+		log.Printf("connect panel %s:%s: %v", panelHost, panelPort, err)
+		_, _ = io.WriteString(client, "HTTP/1.1 502 Bad Gateway\r\nContent-Length: 18\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\nPanel unavailable")
+		return
+	}
+	defer upstream.Close()
+	if err := writeAll(upstream, rawHeader); err != nil {
+		return
+	}
+	if buffered := clientReader.Buffered(); buffered > 0 {
+		data, _ := clientReader.Peek(buffered)
+		pending := append([]byte(nil), data...)
+		_, _ = clientReader.Discard(buffered)
+		if err := writeAll(upstream, pending); err != nil {
+			return
+		}
+	}
+	relayRaw(client, upstream)
+}
+
+func relayRaw(client, upstream net.Conn) {
+	done := make(chan struct{}, 2)
+	go func() {
+		_, _ = io.Copy(upstream, client)
+		if tcp, ok := upstream.(*net.TCPConn); ok {
+			_ = tcp.CloseWrite()
+		}
+		done <- struct{}{}
+	}()
+	go func() {
+		_, _ = io.Copy(client, upstream)
+		if tcp, ok := client.(*net.TCPConn); ok {
+			_ = tcp.CloseWrite()
+		}
+		done <- struct{}{}
+	}()
+	<-done
+}
+
 func handleClient(client net.Conn) {
 	defer client.Close()
 	clientReader := bufio.NewReaderSize(client, 64*1024)
@@ -185,23 +234,9 @@ func handleClient(client net.Conn) {
 			path = parts[1]
 		}
 
-		if !isXrayPath(path) {
-			// HTTP biasa (UI, assets, API, login, dan halaman panel)
-			// harus diteruskan utuh ke Nginx. Jangan membalas 200 kosong.
-			upstream, dialErr := net.DialTimeout("tcp", net.JoinHostPort(nginxHost, nginxPort), 8*time.Second)
-			if dialErr != nil {
-				log.Printf("connect nginx for HTTP request %q: %v", path, dialErr)
-				_, _ = io.WriteString(client, "HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 17\r\nConnection: close\r\n\r\nNginx unavailable")
-				return
-			}
-			if err := writeAll(upstream, rawHeader); err != nil {
-				_ = upstream.Close()
-				return
-			}
-			// clientReader mungkin sudah menyimpan body/request bytes berikutnya.
-			// Relay memakai reader tersebut agar byte yang sudah terbaca tidak hilang.
-			upstreamReader := bufio.NewReaderSize(upstream, 64*1024)
-			relay(clientReader, client, upstreamReader, upstream)
+		if !isXrayPath(path) && !isNginxWebSocketPath(path) {
+			// UI, assets, dan API langsung menuju Node.js :3000.
+			proxyHTTPToPanel(client, clientReader, rawHeader)
 			return
 		}
 
@@ -259,7 +294,7 @@ func main() {
 	}
 	defer listener.Close()
 
-	log.Printf("Go HTTP/WebSocket proxy listening on %s -> %s:%s", listenAddr, nginxHost, nginxPort)
+	log.Printf("Go proxy listening on %s | UI/API -> %s:%s | SSH/Xray WebSocket -> %s:%s", listenAddr, panelHost, panelPort, nginxHost, nginxPort)
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
