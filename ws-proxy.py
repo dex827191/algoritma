@@ -108,19 +108,12 @@ async def handle_client(client_reader, client_writer):
     headers_for_ip = {}
 
     try:
-        # Read the initial HTTP request/header block while retaining any bytes
-        # that arrived after CRLFCRLF in the same TCP packet.
-        initial = await asyncio.wait_for(client_reader.read(65536), timeout=15)
-        if not initial:
-            return
-
-        header_end = initial.find(b"\r\n\r\n")
-        if header_end >= 0:
-            header_block = initial[:header_end + 4]
-            trailing = initial[header_end + 4:]
-        else:
-            header_block, trailing = initial, b""
-
+        # Read a complete HTTP header, including when the client splits it
+        # across TCP packets. Any bytes after CRLFCRLF remain queued for
+        # the SSH forwarding loop below.
+        header_block = await asyncio.wait_for(
+            client_reader.readuntil(b"\\r\\n\\r\\n"), timeout=15
+        )
         headers = parse_headers(header_block)
         headers_for_ip = headers
         lower = header_block.lower()
@@ -175,9 +168,6 @@ async def handle_client(client_reader, client_writer):
             else:
                 await write_data(ssh_writer, data)
 
-        if trailing:
-            await send_client_payload(trailing)
-
         async def client_to_ssh():
             while True:
                 chunk = await client_reader.read(65536)
@@ -197,7 +187,8 @@ async def handle_client(client_reader, client_writer):
         for task in pending_tasks:
             task.cancel()
         await asyncio.gather(*pending_tasks, return_exceptions=True)
-    except (asyncio.TimeoutError, ConnectionError, OSError, ValueError) as exc:
+    except (asyncio.TimeoutError, asyncio.IncompleteReadError,
+            asyncio.LimitOverrunError, ConnectionError, OSError, ValueError) as exc:
         log.info("Connection %s closed: %s", peer, exc)
     except Exception:
         log.exception("Unhandled client error from %s", peer)
