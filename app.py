@@ -27,7 +27,7 @@ SSH_DATA_DIR = os.environ.get("SSH_DATA_DIR", "/etc/ssh-sni")
 SSH_USERS_FILE = os.path.join(SSH_DATA_DIR, "users.json")
 XRAY_USERS_FILE = "/app/users.json"
 XRAY_CONFIG_FILE = "/app/config.json"
-XRAY_DOMAIN = os.environ.get("XRAY_DOMAIN", os.environ.get("DOMAIN", "")).strip()
+XRAY_DOMAIN = os.environ.get("XRAY_DOMAIN", "").strip()
 SSH_DOMAIN = os.environ.get("SSH_DOMAIN", "").strip()
 XRAY_PROXY_PORT = int(os.environ.get("XRAY_PROXY_PORT", "8080"))
 SSH_PUBLIC_PORT = int(os.environ.get("SSH_PORT", "8081"))
@@ -96,33 +96,58 @@ async function loadXray(){
  try{const d=await api('/api/xray/list');xrayAccounts=d.accounts||[];const c=$('xrayCount');if(c)c.textContent=xrayAccounts.length;const box=$('xrayList');if(box)box.innerHTML=xrayAccounts.length?`<div class="tablewrap"><table><thead><tr><th>No</th><th>Nama</th><th>UUID</th></tr></thead><tbody>${xrayAccounts.map((a,i)=>`<tr><td>${i+1}</td><td><b>${esc(a.name)}</b></td><td class="mono small">${esc(a.id)}</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">Belum ada akun Xray.</div>'}catch(e){const box=$('xrayList');if(box)box.textContent='Gagal memuat daftar akun: '+e.message}
 }
 async function renderXray(){
- const head=`<div class="page-head"><div><h1>Daftar Akun Xray (<span id="xrayCount">0</span>)</h1><p>Kelola akun VLESS, VMess, dan Trojan.</p></div></div>`;
- const form=card('Tambah Akun Xray',`<p class="muted small">Satu akun akan ditambahkan ke semua inbound yang tersedia di config.json.</p><div class="row"><div class="field"><label>Nama Akun</label><input id="xrayName" placeholder="user01" maxlength="24"></div><button class="btn filled" onclick="createXray()">＋ Buat Akun</button></div><div id="xrayCreated"></div>`);
+ const head=`<div class="page-head"><div><h1>Daftar Akun Xray (<span id="xrayCount">0</span>)</h1><p>Kelola akun VLESS, VMess, dan Trojan (XHTTP, HTTPUpgrade, WS).</p></div></div>`;
+ const form=card('Tambah Akun Xray',`<p class="muted small">Satu akun akan ditambahkan ke <b>semua inbound</b> (VLESS/VMess/Trojan × XHTTP/HTTPUpgrade/WS) di config.json.</p><div class="row"><div class="field"><label>Nama Akun</label><input id="xrayName" placeholder="user01" maxlength="24"></div><button class="btn filled" onclick="createXray()">＋ Buat Akun</button></div><div id="xrayCreated"></div>`);
  $('view').innerHTML=head+form+card('Daftar Akun Xray',`<div id="xrayList" class="empty">Memuat daftar akun...</div>`);
  await loadXray();
 }
 async function createXray(){const name=$('xrayName').value.trim();if(!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,23}$/.test(name))return toast('Nama 1–24 karakter: huruf, angka, _ atau -','error');try{const d=await api('/api/xray/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});if(d.status==='success'){toast(d.message,'success');$('xrayName').value='';await loadXray();showXray(d.account)}else toast(d.message,'error')}catch(e){toast(e.message,'error')}}
+
+// ------------------------------------------------------------------
+// Semua inbound (9 kombinasi) sesuai config.json
+// ------------------------------------------------------------------
+const XRAY_INBOUNDS=[
+ {protocol:'vless', net:'xhttp',       path:'/xhttp',       mode:'auto', label:'XHTTP'},
+ {protocol:'vless', net:'httpupgrade', path:'/httpup',                  label:'HTTPUpgrade'},
+ {protocol:'vless', net:'ws',          path:'/vless',                   label:'WS'},
+ {protocol:'vmess', net:'xhttp',       path:'/vmess-xhttp', mode:'auto', label:'XHTTP'},
+ {protocol:'vmess', net:'httpupgrade', path:'/vmess-httpup',            label:'HTTPUpgrade'},
+ {protocol:'vmess', net:'ws',          path:'/vmess',                   label:'WS'},
+ {protocol:'trojan',net:'xhttp',       path:'/trojan-xhttp',mode:'auto', label:'XHTTP'},
+ {protocol:'trojan',net:'httpupgrade', path:'/trojan-httpup',           label:'HTTPUpgrade'},
+ {protocol:'trojan',net:'ws',          path:'/trojan',                  label:'WS'},
+];
+
 function makeXrayLinks(a){
  const host=(serverInfo?.xray_domain||serverInfo?.domain||stats?.domain||location.hostname).replace(/^https?:\/\//,'').split('/')[0];
  const sni=host;
- const rows=[['VLESS','WebSocket','vless','ws','/vless'],['VMess','WebSocket','vmess','ws','/vmess'],['Trojan','WebSocket','trojan','ws','/trojan']];
  const variants=[{port:'443',security:'tls',label:'TLS ON'},{port:'80',security:'none',label:'TLS OFF'}];
- return rows.flatMap(([p,t,scheme,net,path])=>variants.map(v=>{
+ return XRAY_INBOUNDS.flatMap(ib=>variants.map(v=>{
   let link;
-  if(scheme==='vmess'){
-   const o={v:'2',ps:`${a.name}-${p}-${t}-${v.port}`,add:host,port:v.port,id:a.id,aid:'0',scy:'auto',net,type:net==='xhttp'?'auto':'none',host,path,tls:v.security==='tls'?'tls':'',...(v.security==='tls'?{sni}:{}),...(net==='xhttp'?{mode:'auto'}:{})};
+  if(ib.protocol==='vmess'){
+   const o={v:'2',ps:`${a.name}-${ib.label}-${v.port}`,add:host,port:v.port,id:a.id,aid:'0',scy:'auto',net:ib.net,type:ib.mode?'auto':'none',host,path:ib.path,tls:v.security==='tls'?'tls':'',sni:v.security==='tls'?sni:''};
+   if(ib.mode)o.mode=ib.mode;
    link='vmess://'+btoa(unescape(encodeURIComponent(JSON.stringify(o))));
   }else{
-   const q=new URLSearchParams({security:v.security,type:net,host,path});
+   const q=new URLSearchParams({security:v.security,type:ib.net,host,path:ib.path});
    if(v.security==='tls')q.set('sni',sni);
-   if(scheme==='vless')q.set('encryption','none');
-   if(net==='xhttp')q.set('mode','auto');
-   link=`${scheme}://${a.id}@${host}:${v.port}?${q}#${encodeURIComponent(`${a.name}-${p}-${t}-${v.label}`)}`;
+   if(ib.protocol==='vless')q.set('encryption','none');
+   if(ib.mode)q.set('mode',ib.mode);
+   link=`${ib.protocol}://${a.id}@${host}:${v.port}?${q}#${encodeURIComponent(`${a.name}-${ib.label}-${v.label}`)}`;
   }
-  return {p,t,path,port:v.port,security:v.label,link};
+  return {p:ib.protocol.toUpperCase(),t:ib.label,path:ib.path,port:v.port,security:v.label,link};
  }));
 }
-function showXray(id){const a=(id && typeof id==='object')?id:xrayAccounts.find(x=>x.id===id);if(!a)return;const links=makeXrayLinks(a);$('xrayCreated').innerHTML=`<section class="card"><h3>Akun Berhasil Dibuat: ${esc(a.name)}</h3><p class="small muted">UUID / Password Trojan</p><div class="row"><input readonly value="${esc(a.id)}"><button class="btn tonal" onclick="copyText(this.dataset.copy)" data-copy="${esc(a.id)}">Salin UUID</button></div>${['VLESS','VMess','Trojan'].map(p=>`<h3 class="mt">${p}</h3>${links.filter(x=>x.p===p).map(x=>`<div class="linkbox"><div class="linktop"><b>${x.t} · ${x.path} · Port ${x.port} · ${x.security}</b><button class="btn textbtn" onclick="copyText(this.dataset.copy)" data-copy="${esc(x.link)}">Salin</button></div><div class="mono small muted">${esc(x.link)}</div></div>`).join('')}`).join('')}</section>`;window.scrollTo({top:0,behavior:'smooth'})}
+
+function showXray(id){
+ const a=(id && typeof id==='object')?id:xrayAccounts.find(x=>x.id===id);
+ if(!a)return;
+ const links=makeXrayLinks(a);
+ const protocols=['VLESS','VMESS','TROJAN'];
+ $('xrayCreated').innerHTML=`<section class="card"><h3>Akun Berhasil Dibuat: ${esc(a.name)}</h3><p class="small muted">UUID / Password Trojan</p><div class="row"><input readonly value="${esc(a.id)}"><button class="btn tonal" onclick="copyText(this.dataset.copy)" data-copy="${esc(a.id)}">Salin UUID</button></div>${protocols.map(p=>`<h3 class="mt">${p}</h3>${links.filter(x=>x.p===p).map(x=>`<div class="linkbox"><div class="linktop"><b>${x.t} · ${x.path} · Port ${x.port} · ${x.security}</b><button class="btn textbtn" onclick="copyText(this.dataset.copy)" data-copy="${esc(x.link)}">Salin</button></div><div class="mono small muted">${esc(x.link)}</div></div>`).join('')}`).join('')}</section>`;
+ window.scrollTo({top:0,behavior:'smooth'});
+}
+
 async function loadInfo(){try{serverInfo=await api('/__info')}catch{serverInfo=null}}
 async function copyText(text){try{await navigator.clipboard.writeText(String(text));toast('Berhasil disalin','success')}catch{const t=document.createElement('textarea');t.value=text;document.body.append(t);t.select();document.execCommand('copy');t.remove();toast('Berhasil disalin','success')}}
 (async()=>{await loadInfo();await loadStats();render();setInterval(loadStats,300000)})();
