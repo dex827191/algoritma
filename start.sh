@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-# UI app listens on APP_PORT=2053; Xray ingress has its own XRAY_PROXY_PORT.
+# Nginx is the single HTTP/WebSocket ingress on port 8080.
 nginx -c /app/nginx.conf
 
 # BADVPN UDPGW: dedicated UDP forwarding endpoint for SSH only.
@@ -41,7 +41,7 @@ sysctl -w net.core.wmem_max=16777216 2>/dev/null || true
 sysctl -w net.core.netdev_max_backlog=50000 2>/dev/null || true
 sysctl -w net.ipv4.tcp_max_syn_backlog=8192 2>/dev/null || true
 
-# Xray is owned only by proxy_wrapper.py; SSH never passes through it.
+# Xray runs as a private local service; Nginx routes public HTTP paths to it.
 (
   while true; do
     xray run -c /app/config.json
@@ -55,8 +55,8 @@ XRAY_PID=$!
 python3 /app/app.py &
 APP_PID=$!
 
-# SSH backend: Dropbear -> WebSocket proxy -> TCP mux on SSH_PORT (ENV).
-mkdir -p /etc/dropbear /etc/stunnel /etc/ssh-sni /var/run/stunnel
+# SSH backend: Dropbear is private; WebSocket bridge is routed by Nginx /sshws.
+mkdir -p /etc/dropbear /etc/ssh-sni
 cat > /etc/dropbear/banner <<'BANNER'
 <p style="text-align:center;"><b>
     <font color="#800080">▬</font><font color="#8A2BE2">▬</font><font color="#9370DB">▬</font><font color="#7B68EE">▬</font><font color="#7B68EE">▬ஜ۩۞۩ஜ▬</font><font color="#7B68EE">▬</font><font color="#9370DB">▬</font><font color="#8A2BE2">▬</font><font color="#800080">▬</font></font><br>
@@ -78,30 +78,8 @@ fi
 printf '%s:%s\n' "$SSH_USER" "$SSH_PASSWORD" | chpasswd
 /usr/sbin/dropbear -p 127.0.0.1:22 -b /etc/dropbear/banner -W 65536
 
-# TLS SSH backend, selected by mux.py when the first byte is TLS handshake (0x16).
-if [ ! -s /etc/stunnel/stunnel.pem ]; then
-  openssl req -new -newkey rsa:2048 -days 365 -nodes -x509 \
-    -subj '/C=ID/ST=Indonesia/L=Server/O=SSH/CN=localhost' \
-    -keyout /etc/stunnel/stunnel.pem -out /etc/stunnel/stunnel.pem
-fi
-cat > /etc/stunnel/stunnel.conf <<'STUNNEL'
-pid = /var/run/stunnel.pid
-foreground = yes
-[ssh-ssl]
-accept = 127.0.0.1:2443
-connect = 127.0.0.1:22
-cert = /etc/stunnel/stunnel.pem
-STUNNEL
-stunnel /etc/stunnel/stunnel.conf &
-
 WS_PORT=8880 WS_TARGET_HOST=127.0.0.1 WS_TARGET_PORT=22 \
   python3 /app/ws-proxy.py &
-
-# SSH mux has its own listener; this does not change proxy_wrapper.py's Xray port.
-SSH_PORT="${SSH_PORT:-8081}" \
-SSL_TARGET_HOST=127.0.0.1 SSL_TARGET_PORT=2443 \
-WS_MUX_TARGET_HOST=127.0.0.1 WS_MUX_TARGET_PORT=8880 \
-  python3 /app/mux.py &
 
 # One Cloudflare Tunnel can publish two hostnames to two different local services.
 if [ -n "${CF_TOKEN:-}" ]; then
@@ -109,5 +87,5 @@ if [ -n "${CF_TOKEN:-}" ]; then
 fi
 
 trap 'kill "$XRAY_PID" "$APP_PID" 2>/dev/null || true; exit 0' INT TERM
-# Keep the Xray ingress process in foreground; UI requests are forwarded to nginx -> app.py.
-XRAY_PROXY_PORT="${XRAY_PROXY_PORT:-8080}" python3 /app/proxy_wrapper.py
+# Keep container alive while Nginx, SSH WS, Xray, panel and optional cloudflared run.
+wait
