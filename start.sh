@@ -4,7 +4,7 @@ set -eu
 # UI app listens on APP_PORT=2053; Xray ingress has its own XRAY_PROXY_PORT.
 nginx -c /app/nginx.conf
 
-# BADVPN UDPGW: dedicated UDP forwarding endpoint for SSH only.
+# BADVPN UDPGW
 NET_BIN="${NET_BIN:-/usr/local/bin/badvpn-udpgw}"
 UDPGW_PORT="${UDPGW_PORT:-7300}"
 UDPGW_MAX_CLIENTS="${UDPGW_MAX_CLIENTS:-2048}"
@@ -21,12 +21,9 @@ else
   echo "[!] BADVPN binary not found at ${NET_BIN}; SSH UDPGW skipped."
 fi
 
-# KUNCI UTAMA ANTI-SUNEK: best-effort process/socket limits (per process shell).
-# Limits may be constrained by the container runtime.
 ulimit -n 65535 2>/dev/null || true
 ulimit -s unlimited 2>/dev/null || true
 
-# ULTRA TURBO KERNEL TWEAKS & BBR SWITCH (best-effort; host/container permissions apply).
 echo "[*] Optimizing socket queues and TIME_WAIT cleanup..."
 sysctl -w net.ipv4.tcp_tw_reuse=1 2>/dev/null || true
 sysctl -w net.ipv4.tcp_fin_timeout=10 2>/dev/null || true
@@ -83,7 +80,6 @@ fi
 printf '%s:%s\n' "$SSH_USER" "$SSH_PASSWORD" | chpasswd
 /usr/sbin/dropbear -p 127.0.0.1:22 -b /etc/dropbear/banner -W 65536
 
-# TLS SSH backend, selected by mux.py when the first byte is TLS handshake (0x16).
 if [ ! -s /etc/stunnel/stunnel.pem ]; then
   openssl req -new -newkey rsa:2048 -days 365 -nodes -x509 \
     -subj '/C=ID/ST=Indonesia/L=Server/O=SSH/CN=localhost' \
@@ -102,17 +98,17 @@ stunnel /etc/stunnel/stunnel.conf &
 WS_PORT=8880 WS_TARGET_HOST=127.0.0.1 WS_TARGET_PORT=22 \
   python3 /app/ws-proxy.py &
 
-# SSH mux has its own listener; this does not change proxy_wrapper.py's Xray port.
 SSH_PORT="${SSH_PORT:-8081}" \
 SSL_TARGET_HOST=127.0.0.1 SSL_TARGET_PORT=2443 \
 WS_MUX_TARGET_HOST=127.0.0.1 WS_MUX_TARGET_PORT=8880 \
   python3 /app/mux.py &
 
-# One Cloudflare Tunnel can publish two hostnames to two different local services.
+# ── Cloudflare Tunnel: log ke /data/cloudflared.log untuk domain watcher ──
 if [ -n "${CF_TOKEN:-}" ]; then
-  cloudflared tunnel --no-autoupdate run --token "$CF_TOKEN" &
+  mkdir -p /data
+  cloudflared tunnel --no-autoupdate run --token "$CF_TOKEN" 2>&1 \
+    | tee /data/cloudflared.log &
 fi
 
 trap 'kill "$XRAY_PID" "$APP_PID" 2>/dev/null || true; exit 0' INT TERM
-# Keep the Xray ingress process in foreground; UI requests are forwarded to nginx -> app.py.
 XRAY_PROXY_PORT="${XRAY_PROXY_PORT:-8080}" python3 /app/proxy_wrapper.py

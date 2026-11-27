@@ -34,9 +34,17 @@ ENABLE_BBR = os.environ.get("ENABLE_BBR", "false").lower()
 
 XRAY_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,23}")
 
+# --- Cloudflare Tunnel domain auto-detection -------------------------------
+CLOUDFLARED_LOG_FILE = os.environ.get("CLOUDFLARED_LOG_FILE", "/data/cloudflared.log")
+DOMAIN_STATE_FILE    = os.environ.get("DOMAIN_STATE_FILE",    "/data/domain.json")
+DOMAIN_REFRESH_SEC   = max(3, int(os.environ.get("DOMAIN_REFRESH_SECONDS", "10")))
+
+DOMAIN_STATE_LOCK = threading.Lock()
+DOMAIN_STATE = {"domain": "", "updated_at": None}
+
 
 # ---------------------------------------------------------------------------
-# Embedded Web UI (redesigned — gradient / glassmorphism)
+# Embedded Web UI (redesigned — technical / lined / cyber style)
 # ---------------------------------------------------------------------------
 
 INDEX_HTML = """<!doctype html>
@@ -50,9 +58,12 @@ INDEX_HTML = """<!doctype html>
   --primary:#7c3aed;--primary-2:#a855f7;--primary-3:#6366f1;--accent:#06b6d4;
   --surface:#ffffff;--surface-2:#faf8ff;--surface-3:#f3efff;
   --text:#0f0d1a;--muted:#64748b;
-  --border:rgba(124,58,237,.08);--border-2:rgba(124,58,237,.15);
+  --grid:rgba(124,58,237,.045);
+  --line:rgba(124,58,237,.14);
+  --line-strong:rgba(124,58,237,.28);
+  --border:rgba(124,58,237,.10);--border-2:rgba(124,58,237,.18);
   --success:#10b981;--success-bg:#d1fae5;--success-text:#047857;
-  --radius:20px;--radius-sm:12px;
+  --radius:18px;--radius-sm:12px;
   --shadow:0 4px 24px rgba(124,58,237,.08),0 1px 3px rgba(15,13,26,.04);
   --shadow-lg:0 24px 56px rgba(124,58,237,.16),0 4px 12px rgba(15,13,26,.04);
   --gradient:linear-gradient(135deg,#7c3aed 0%,#6366f1 50%,#06b6d4 100%);
@@ -62,10 +73,14 @@ INDEX_HTML = """<!doctype html>
 html,body{height:100%}
 body{
   margin:0;
-  background:
+  background-color:#faf9ff;
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px),
     radial-gradient(1200px 800px at 100% -10%,rgba(168,85,247,.13),transparent 60%),
-    radial-gradient(900px 600px at -10% 100%,rgba(6,182,212,.10),transparent 60%),
-    #faf9ff;
+    radial-gradient(900px 600px at -10% 100%,rgba(6,182,212,.10),transparent 60%);
+  background-size:44px 44px, 44px 44px, auto, auto;
+  background-attachment:fixed;
   color:var(--text);font:14px/1.55 Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
   min-height:100vh;-webkit-font-smoothing:antialiased;
 }
@@ -73,54 +88,85 @@ button,input,select,textarea{font:inherit;color:inherit}
 button{cursor:pointer;border:0}
 .app{min-height:100vh}
 
-/* Sidebar */
+/* ===== Sidebar ===== */
 .sidebar{
   position:fixed;inset:0 auto 0 0;width:268px;
-  background:rgba(255,255,255,.75);
+  background:rgba(255,255,255,.82);
   backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
-  border-right:1px solid var(--border);
+  border-right:1px solid var(--border-2);
   padding:20px 16px;display:flex;flex-direction:column;z-index:5;
   transition:transform .3s cubic-bezier(.4,0,.2,1);
+  box-shadow:1px 0 0 rgba(255,255,255,.5), inset -1px 0 0 rgba(124,58,237,.05);
 }
-.brand{display:flex;align-items:center;gap:12px;padding:6px 8px 24px;font-weight:750;font-size:16px;letter-spacing:-.01em}
+.sidebar::after{
+  content:'';position:absolute;top:0;bottom:0;right:-1px;width:2px;
+  background:linear-gradient(180deg,transparent,var(--primary),transparent);
+  opacity:.35;pointer-events:none;
+}
+.brand{display:flex;align-items:center;gap:12px;padding:6px 8px 24px;font-weight:750;font-size:16px;letter-spacing:-.01em;position:relative}
+.brand::after{
+  content:'';position:absolute;left:8px;right:8px;bottom:8px;height:1px;
+  background:linear-gradient(90deg,var(--line-strong),transparent);
+}
 .brandmark{
-  width:42px;height:42px;border-radius:14px;
+  width:42px;height:42px;border-radius:12px;
   background:var(--gradient);color:#fff;display:grid;place-items:center;font-size:20px;
   box-shadow:0 8px 20px rgba(124,58,237,.35),0 0 0 4px rgba(124,58,237,.08);
-  animation:float 4s ease-in-out infinite;
+  animation:float 4s ease-in-out infinite;position:relative;
+}
+.brandmark::after{
+  content:'';position:absolute;inset:-4px;border-radius:16px;
+  border:1px dashed rgba(124,58,237,.3);
 }
 @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
 .brand small{color:var(--muted);font-weight:500;font-size:11px;letter-spacing:.02em}
-.navlabel{font-size:10px;letter-spacing:.14em;color:var(--muted);font-weight:700;padding:10px 14px;text-transform:uppercase}
+.navlabel{
+  font-size:10px;letter-spacing:.16em;color:var(--muted);font-weight:750;
+  padding:10px 14px;text-transform:uppercase;position:relative;
+  display:flex;align-items:center;gap:8px;
+}
+.navlabel::after{content:'';flex:1;height:1px;background:var(--line)}
 .nav button{
   width:100%;background:transparent;color:var(--muted);
-  padding:12px 14px;border-radius:14px;text-align:left;
+  padding:12px 14px;border-radius:12px;text-align:left;
   display:flex;gap:12px;align-items:center;margin:3px 0;
-  font-weight:600;font-size:13.5px;
-  transition:background .18s,color .18s,transform .18s;
+  font-weight:650;font-size:13.5px;border:1px solid transparent;
+  transition:all .18s;position:relative;
 }
-.nav button:hover{background:var(--surface-3);color:var(--text)}
-.nav button.active{background:var(--gradient);color:#fff;box-shadow:0 8px 20px rgba(124,58,237,.3);transform:translateX(2px)}
+.nav button:hover{background:var(--surface-3);color:var(--text);border-color:var(--border)}
+.nav button.active{
+  background:var(--gradient);color:#fff;
+  box-shadow:0 8px 20px rgba(124,58,237,.3);transform:translateX(2px);
+  border-color:transparent;
+}
+.nav button.active::before{
+  content:'';position:absolute;left:-16px;top:50%;transform:translateY(-50%);
+  width:3px;height:22px;border-radius:2px;background:var(--primary);
+  box-shadow:0 0 12px var(--primary-2);
+}
 .nav .ico{width:20px;text-align:center;font-size:17px;display:inline-flex;justify-content:center}
-.sidefoot{margin-top:auto;border-top:1px solid var(--border);padding:16px 6px 4px}
-.status{display:inline-flex;align-items:center;gap:8px;border-radius:30px;padding:7px 13px;background:var(--surface-3);font-size:11.5px;font-weight:650;color:var(--muted)}
+.sidefoot{margin-top:auto;border-top:1px dashed var(--line);padding:16px 6px 4px}
+.status{display:inline-flex;align-items:center;gap:8px;border-radius:30px;padding:7px 13px;background:var(--surface-3);font-size:11.5px;font-weight:650;color:var(--muted);border:1px solid var(--border)}
 .dot{width:8px;height:8px;background:var(--success);border-radius:50%;box-shadow:0 0 0 4px rgba(16,185,129,.15);animation:pulse 2s infinite}
 @keyframes pulse{0%,100%{box-shadow:0 0 0 4px rgba(16,185,129,.15)}50%{box-shadow:0 0 0 8px rgba(16,185,129,.05)}}
 
-/* Main */
+/* ===== Main ===== */
 .main{margin-left:268px;min-width:0}
 .topbar{
   height:72px;display:flex;align-items:center;justify-content:space-between;
-  padding:0 32px;background:rgba(255,255,255,.7);
+  padding:0 32px;background:rgba(255,255,255,.75);
   backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
-  border-bottom:1px solid var(--border);position:sticky;top:0;z-index:3;
+  border-bottom:1px solid var(--border-2);position:sticky;top:0;z-index:3;
+  box-shadow:0 1px 0 rgba(124,58,237,.05), 0 4px 24px rgba(124,58,237,.04);
 }
 .top-left{display:flex;align-items:center;gap:14px}
-.topbar h2{font-size:15px;margin:0;font-weight:700;letter-spacing:-.005em}
+.topbar h2{font-size:15px;margin:0;font-weight:750;letter-spacing:-.005em;position:relative;padding-left:14px}
+.topbar h2::before{content:'';position:absolute;left:0;top:50%;transform:translateY(-50%);width:3px;height:16px;border-radius:2px;background:var(--gradient)}
 .top-actions{display:flex;gap:10px;align-items:center}
 .content{max-width:1160px;margin:auto;padding:32px 32px 60px}
 
-.page-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;gap:16px}
+.page-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;gap:16px;position:relative;padding-bottom:18px}
+.page-head::after{content:'';position:absolute;left:0;right:0;bottom:0;height:1px;background:linear-gradient(90deg,var(--primary),var(--accent),transparent)}
 .page-head h1{
   font-size:28px;letter-spacing:-.025em;margin:0 0 6px;font-weight:800;
   background:linear-gradient(135deg,#1e1b2e 30%,#7c3aed 100%);
@@ -128,97 +174,178 @@ button{cursor:pointer;border:0}
 }
 .page-head p{color:var(--muted);margin:0;font-size:13.5px}
 
-/* Cards */
+/* ===== Cards with corner brackets ===== */
 .card{
-  background:rgba(255,255,255,.85);
+  position:relative;
+  background:rgba(255,255,255,.9);
   backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
-  border:1px solid var(--border);border-radius:var(--radius);
+  border:1px solid var(--border-2);
+  border-radius:var(--radius);
   padding:22px;margin-bottom:16px;box-shadow:var(--shadow);
-  transition:box-shadow .25s;
+  transition:box-shadow .25s,border-color .25s;
 }
-.card:hover{box-shadow:var(--shadow-lg)}
-.card h3{font-size:15px;margin:0 0 16px;font-weight:750;letter-spacing:-.005em;display:flex;align-items:center;gap:8px}
-.card h3::before{content:'';width:4px;height:16px;border-radius:2px;background:var(--gradient);display:inline-block}
+.card:hover{box-shadow:var(--shadow-lg);border-color:var(--line-strong)}
+.card::before,
+.card::after{
+  content:'';position:absolute;width:18px;height:18px;
+  border:2px solid var(--primary);pointer-events:none;opacity:.85;
+  transition:width .25s,height .25s,border-color .25s;
+}
+.card::before{top:-1px;left:-1px;border-right:0;border-bottom:0;border-top-left-radius:var(--radius)}
+.card::after{bottom:-1px;right:-1px;border-left:0;border-top:0;border-bottom-right-radius:var(--radius)}
+.card:hover::before,
+.card:hover::after{width:26px;height:26px;border-color:var(--accent)}
+.card h3{
+  font-size:14px;margin:0 0 16px;font-weight:750;letter-spacing:.02em;
+  display:flex;align-items:center;gap:10px;text-transform:uppercase;
+  padding-bottom:12px;border-bottom:1px dashed var(--line);
+  position:relative;
+}
+.card h3::before{
+  content:'';width:4px;height:14px;border-radius:2px;
+  background:var(--gradient);box-shadow:0 0 8px rgba(124,58,237,.4);
+}
+.card h3::after{
+  content:'';flex:1;height:1px;
+  background:repeating-linear-gradient(90deg,var(--line) 0 6px,transparent 6px 10px);
+}
+
 .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
 .grid.four{grid-template-columns:repeat(4,minmax(0,1fr))}
 .grid.five{grid-template-columns:repeat(5,minmax(0,1fr))}
-.stat{
-  padding:18px;border-radius:16px;
-  background:linear-gradient(135deg,rgba(255,255,255,1),rgba(243,239,255,.6));
-  border:1px solid var(--border);min-width:0;position:relative;overflow:hidden;
-  transition:transform .2s,box-shadow .2s;
-}
-.stat:hover{transform:translateY(-2px);box-shadow:0 12px 28px rgba(124,58,237,.1)}
-.stat::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--gradient);opacity:.7}
-.stat .k{color:var(--muted);font-size:10.5px;font-weight:750;letter-spacing:.08em;text-transform:uppercase}
-.stat .v{font-size:18px;font-weight:800;margin-top:8px;overflow-wrap:anywhere;letter-spacing:-.015em}
-.stat .sub{font-size:11.5px;color:var(--muted);margin-top:3px}
 
-/* Fields */
+/* ===== Stat with scanlines ===== */
+.stat{
+  padding:18px;border-radius:14px;
+  background:linear-gradient(135deg,rgba(255,255,255,1),rgba(243,239,255,.65));
+  border:1px solid var(--border-2);min-width:0;position:relative;overflow:hidden;
+  transition:transform .2s,box-shadow .2s,border-color .2s;
+}
+.stat::before{
+  content:'';position:absolute;inset:0;
+  background-image:repeating-linear-gradient(0deg,rgba(124,58,237,.035) 0 1px,transparent 1px 4px);
+  pointer-events:none;
+}
+.stat::after{
+  content:'';position:absolute;top:0;left:0;right:0;height:3px;
+  background:linear-gradient(90deg,var(--primary),var(--accent),var(--primary));
+  background-size:200% 100%;
+  animation:slide 6s linear infinite;
+}
+@keyframes slide{0%{background-position:0% 50%}100%{background-position:200% 50%}}
+.stat:hover{transform:translateY(-2px);box-shadow:0 12px 28px rgba(124,58,237,.12);border-color:var(--line-strong)}
+.stat .k{
+  color:var(--muted);font-size:10.5px;font-weight:750;
+  letter-spacing:.1em;text-transform:uppercase;position:relative;
+  display:flex;align-items:center;gap:6px;
+}
+.stat .k::before{content:'▸';color:var(--primary);font-size:10px}
+.stat .v{
+  font-size:18px;font-weight:800;margin-top:8px;
+  overflow-wrap:anywhere;letter-spacing:-.015em;position:relative;
+}
+.stat .sub{font-size:11.5px;color:var(--muted);margin-top:3px;position:relative}
+
+/* ===== Fields ===== */
 .field{display:flex;flex-direction:column;gap:7px;margin-bottom:14px;min-width:0}
-.field label{font-size:11.5px;font-weight:700;color:var(--muted);letter-spacing:.02em}
+.field label{
+  font-size:11px;font-weight:750;color:var(--muted);letter-spacing:.08em;
+  text-transform:uppercase;display:flex;align-items:center;gap:6px;
+}
+.field label::before{content:'//';color:var(--primary);opacity:.6;font-family:ui-monospace,monospace}
 .field input,.field select,.field textarea{
   width:100%;border:1.5px solid var(--border-2);background:var(--surface);
-  border-radius:12px;padding:12px 14px;color:var(--text);outline:none;min-width:0;
-  transition:border-color .18s,box-shadow .18s;
+  border-radius:10px;padding:11px 14px;color:var(--text);outline:none;min-width:0;
+  transition:border-color .18s,box-shadow .18s,background .18s;
+  font-family:ui-monospace,SFMono-Regular,'JetBrains Mono',Consolas,monospace;
+  font-size:13px;
 }
-.field input:hover,.field select:hover,.field textarea:hover{border-color:rgba(124,58,237,.3)}
-.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--primary);box-shadow:0 0 0 4px rgba(124,58,237,.1)}
+.field input:hover,.field select:hover,.field textarea:hover{border-color:var(--line-strong)}
+.field input:focus,.field select:focus,.field textarea:focus{
+  border-color:var(--primary);box-shadow:0 0 0 4px rgba(124,58,237,.1);
+  background:var(--surface-2);
+}
 .row{display:flex;gap:12px;align-items:end}
 .row>*{flex:1;min-width:0}
 
-/* Buttons */
+/* ===== Buttons ===== */
 .btn{
-  border:0;border-radius:30px;padding:11px 20px;min-height:42px;
-  font-weight:700;font-size:13px;display:inline-flex;align-items:center;justify-content:center;gap:8px;
-  transition:all .18s;white-space:nowrap;
+  border:0;border-radius:10px;padding:11px 20px;min-height:42px;
+  font-weight:750;font-size:13px;display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  transition:all .18s;white-space:nowrap;position:relative;letter-spacing:.01em;
 }
 .btn:disabled{opacity:.55;cursor:not-allowed}
-.filled{background:var(--gradient);color:#fff;box-shadow:0 4px 14px rgba(124,58,237,.35)}
-.filled:hover:not(:disabled){box-shadow:0 8px 24px rgba(124,58,237,.45);transform:translateY(-1px)}
+.filled{
+  background:var(--gradient);color:#fff;
+  box-shadow:0 4px 14px rgba(124,58,237,.35), inset 0 1px 0 rgba(255,255,255,.25);
+}
+.filled:hover:not(:disabled){box-shadow:0 8px 24px rgba(124,58,237,.45), inset 0 1px 0 rgba(255,255,255,.3);transform:translateY(-1px)}
 .filled:active{transform:translateY(0)}
 .tonal{background:var(--surface-3);color:var(--primary);border:1px solid var(--border-2)}
-.tonal:hover{background:#ede9fe}
+.tonal:hover{background:#ede9fe;border-color:var(--line-strong)}
 .outlined{background:transparent;color:var(--primary);border:1.5px solid var(--border-2)}
-.outlined:hover{background:var(--surface-3)}
-.danger{background:#fee2e2;color:#991b1b}
-.textbtn{background:transparent;color:var(--muted);padding:8px 12px}
-.textbtn:hover{background:var(--surface-3);color:var(--text)}
+.outlined:hover{background:var(--surface-3);border-color:var(--primary)}
+.danger{background:#fee2e2;color:#991b1b;border:1px solid #fecaca}
+.danger:hover{background:#fecaca}
+.textbtn{background:transparent;color:var(--muted);padding:8px 12px;border:1px solid transparent}
+.textbtn:hover{background:var(--surface-3);color:var(--text);border-color:var(--border)}
 .wide{width:100%}
 
-/* Chips */
-.chip{display:inline-flex;align-items:center;gap:6px;border-radius:30px;background:var(--surface-3);padding:5px 11px;font-size:11px;font-weight:700;color:var(--muted)}
-.chip.good{background:var(--success-bg);color:var(--success-text)}
+/* ===== Chips ===== */
+.chip{
+  display:inline-flex;align-items:center;gap:6px;border-radius:8px;
+  background:var(--surface-3);padding:6px 12px;font-size:11px;font-weight:750;
+  color:var(--muted);border:1px solid var(--border);letter-spacing:.02em;
+  font-family:ui-monospace,monospace;
+}
+.chip.good{background:var(--success-bg);color:var(--success-text);border-color:rgba(16,185,129,.25)}
 
-/* Table */
-.tablewrap{overflow:auto;border-radius:14px;border:1px solid var(--border)}
+/* ===== Table ===== */
+.tablewrap{overflow:auto;border-radius:12px;border:1px solid var(--border-2);background:rgba(255,255,255,.6)}
 table{border-collapse:collapse;width:100%;min-width:460px}
 th,td{text-align:left;padding:13px 14px;border-bottom:1px solid var(--border)}
-th{font-size:10.5px;text-transform:uppercase;color:var(--muted);letter-spacing:.08em;font-weight:750;background:var(--surface-2)}
+th{
+  font-size:10.5px;text-transform:uppercase;color:var(--muted);
+  letter-spacing:.1em;font-weight:750;background:var(--surface-2);
+  border-bottom:2px solid var(--line);
+}
 td{font-size:13px}
 tbody tr{transition:background .15s}
 tbody tr:hover{background:var(--surface-2)}
 tbody tr:last-child td{border-bottom:0}
 
-/* Misc */
+/* ===== Misc ===== */
 .mono,pre{font-family:ui-monospace,SFMono-Regular,'JetBrains Mono',Consolas,monospace;overflow-wrap:anywhere}
 .muted{color:var(--muted)}
-.output{background:linear-gradient(135deg,#f8f5ff 0%,#eef9fd 100%);border:1px solid var(--border);border-radius:14px;padding:16px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:340px;overflow:auto;font-size:12px}
-.notice{background:var(--gradient-soft);color:#403653;padding:14px 16px;border-radius:14px;font-size:12.5px;border:1px solid var(--border)}
+.output{
+  background:linear-gradient(135deg,#f8f5ff 0%,#eef9fd 100%);
+  border:1px solid var(--border-2);border-radius:10px;padding:16px;
+  white-space:pre-wrap;overflow-wrap:anywhere;max-height:340px;overflow:auto;
+  font-size:12px;position:relative;
+}
+.output::before{
+  content:'';position:absolute;left:0;top:0;bottom:0;width:3px;
+  background:linear-gradient(180deg,var(--primary),var(--accent));border-radius:10px 0 0 10px;
+}
+.notice{
+  background:var(--gradient-soft);color:#403653;padding:14px 16px;
+  border-radius:10px;font-size:12.5px;border:1px solid var(--border-2);
+  border-left:3px solid var(--primary);
+}
 .hidden{display:none!important}
 .hamb{display:none}
 .overlay{display:none}
 .toast{
   position:fixed;right:20px;bottom:20px;z-index:20;
-  background:#1e1b2e;color:#fff;padding:14px 20px;border-radius:16px;
-  box-shadow:var(--shadow-lg);max-width:min(90vw,420px);font-weight:600;font-size:13px;
-  animation:slideUp .3s cubic-bezier(.4,0,.2,1);
+  background:#1e1b2e;color:#fff;padding:14px 20px;border-radius:12px;
+  box-shadow:var(--shadow-lg);max-width:min(90vw,420px);font-weight:650;font-size:13px;
+  animation:slideUp .3s cubic-bezier(.4,0,.2,1);border:1px solid rgba(255,255,255,.1);
 }
 @keyframes slideUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
 .toast.error{background:#b91c1c}
 .toast.success{background:linear-gradient(135deg,#059669,#10b981)}
 
-/* Modal */
+/* ===== Modal ===== */
 .modal{
   position:fixed;inset:0;background:rgba(15,13,26,.6);
   backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
@@ -226,25 +353,41 @@ tbody tr:last-child td{border-bottom:0}
 }
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 .modalbox{
-  background:var(--surface);border-radius:24px;padding:26px;
+  background:var(--surface);border-radius:18px;padding:26px;
   width:min(100%,480px);box-shadow:var(--shadow-lg);
   animation:modalIn .3s cubic-bezier(.4,0,.2,1);
+  border:1px solid var(--border-2);position:relative;
 }
+.modalbox::before,
+.modalbox::after{
+  content:'';position:absolute;width:22px;height:22px;
+  border:2px solid var(--primary);pointer-events:none;
+}
+.modalbox::before{top:-1px;left:-1px;border-right:0;border-bottom:0;border-top-left-radius:18px}
+.modalbox::after{bottom:-1px;right:-1px;border-left:0;border-top:0;border-bottom-right-radius:18px}
 @keyframes modalIn{from{opacity:0;transform:scale(.95) translateY(10px)}to{opacity:1;transform:scale(1) translateY(0)}}
 .modalbox h3{margin:0 0 8px}
 
-/* Traffic */
+/* ===== Traffic ===== */
 .traffic{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.traffic>div{background:var(--gradient-soft);border:1px solid var(--border);border-radius:14px;padding:14px}
+.traffic>div{background:var(--gradient-soft);border:1px solid var(--border-2);border-radius:10px;padding:14px;position:relative;overflow:hidden}
+.traffic>div::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(180deg,var(--primary),var(--accent))}
 .genbuttons{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
 .genbuttons button{font-size:12px;padding:12px 6px}
-.linkbox{background:var(--surface-3);padding:12px;border-radius:12px;margin:8px 0}
+.linkbox{background:var(--surface-3);padding:12px;border-radius:10px;margin:8px 0;border:1px solid var(--border)}
 .linktop{display:flex;justify-content:space-between;gap:8px;align-items:center}
 .small{font-size:11px}
 .mt{margin-top:14px}
 .right{text-align:right}
 .empty{text-align:center;color:var(--muted);padding:32px 20px;font-size:13px}
+.empty::before{
+  content:'◇';display:block;font-size:32px;color:var(--line-strong);
+  margin-bottom:8px;font-weight:300;
+}
 .mobile-only{display:none}
+
+/* divider */
+.divider{height:1px;background:repeating-linear-gradient(90deg,var(--line) 0 6px,transparent 6px 12px);margin:16px 0;border:0}
 
 @media(max-width:1000px){
   .grid.four,.grid.five{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -401,22 +544,15 @@ function renderDashboard(){
     <div class="page-head"><div><h1>Dashboard Server</h1><p>Ringkasan status dan performa server kamu.</p></div><span class="chip good">● Services Managed</span></div>
     <div class="grid four">${statsHTML}</div>
     ${card('Traffic Metrics',trafficCard)}
-    ${card('Info Pengaturan Server',`<div class="grid">
-      ${[['SSH Backend Port',s.ws_proxy_cfg?.sshPort||22],['UI Panel',s.ui_port||2053],
-         ['Xray Proxy',s.xray_proxy_port||8080],['SSH Mux',s.ssh_port||8081],
-         ['Xray','data/config.json'],['BBR',s.sys_settings?.enable_bbr==='true'?'ON':'OFF'],
-         ['UDPGW',s.sys_settings?.udpgw_port||7300]]
-        .map(x=>`<div><span class="muted">${x[0]}</span><br><b>${esc(x[1])}</b></div>`).join('')}
-    </div>`)}
     ${card('Domain',`
       <div class="field">
-        <label>Domain Server (otomatis dari Host request)</label>
+        <label>Domain Server (auto-detect dari Cloudflare Tunnel)</label>
         <div class="row">
-          <input readonly value="${esc(s.domain||'Host belum terdeteksi')}">
+          <input readonly value="${esc(s.domain||'Menunggu ingress Cloudflare...')}">
           <button class="btn tonal" onclick="copyText(this.dataset.copy)" data-copy="${esc(s.domain||'')}">📋 Salin</button>
         </div>
       </div>
-      <p class="muted small">Domain otomatis diambil dari hostname request yang diterima panel melalui Cloudflare Tunnel atau proxy.</p>
+      <p class="muted small">Domain otomatis diambil dari ingress Cloudflare Tunnel yang mengarah ke port <b>${esc(s.xray_proxy_port||8080)}</b>. Panel refresh setiap ~10 detik.</p>
     `)}`;
 }
 // -------------------- SSH account --------------------
@@ -590,6 +726,7 @@ async function copyText(text){
   render();
   setInterval(loadStats,300000);         // server summary (5min)
   setInterval(loadTraffic,5000);          // traffic snapshot (5s)
+  setInterval(loadInfo,15000);            // domain refresh (15s)
 })();
 </script></body></html>
 """
@@ -746,14 +883,9 @@ def _split_hostport(addr):
 
 
 def get_online_ssh_users():
-    """Gabungan `who -u` + `ss -tnp` (filter sshd/dropbear).
-
-    Returns list of dict: user, ip, tty, since, idle, pid.
-    """
     sessions = []
-    seen = set()  # (user, ip)
+    seen = set()
 
-    # 1) who -u : sesi terminal aktif (ip di kolom FROM)
     try:
         out = subprocess.run(["who", "-u"], capture_output=True,
                              text=True, timeout=3).stdout or ""
@@ -777,15 +909,11 @@ def get_online_ssh_users():
             continue
         seen.add(key)
         sessions.append({
-            "user": user,
-            "ip": ip,
-            "tty": tty or "-",
-            "since": f"{date} {time_s}",
-            "idle": idle or "-",
+            "user": user, "ip": ip, "tty": tty or "-",
+            "since": f"{date} {time_s}", "idle": idle or "-",
             "pid": int(pid) if pid else None,
         })
 
-    # 2) ss : koneksi ESTAB milik sshd/dropbear child (owner = user)
     try:
         ss_out = subprocess.run(["ss", "-tnp"], capture_output=True,
                                 text=True, timeout=3).stdout or ""
@@ -821,26 +949,27 @@ def get_online_ssh_users():
             continue
         seen.add(key)
         sessions.append({
-            "user": uname,
-            "ip": ip,
-            "tty": "-",
-            "since": "active",
-            "idle": "-",
-            "pid": pid,
+            "user": uname, "ip": ip, "tty": "-",
+            "since": "active", "idle": "-", "pid": pid,
         })
 
     return sessions
 
 
 # ---------------------------------------------------------------------------
-# Domain / stats helpers
+# Domain resolution (Cloudflare Tunnel aware)
 # ---------------------------------------------------------------------------
 
 def server_domain(handler):
-    # Auto-detect hostname from incoming request (Cloudflare Tunnel/proxy Host headers).
+    # 1) Prioritas: domain hasil deteksi dari Cloudflare Tunnel (port 8080).
+    with DOMAIN_STATE_LOCK:
+        cached = (DOMAIN_STATE.get("domain") or "").strip()
+    if cached:
+        return cached
+
+    # 2) Fallback: Host header dari request masuk.
     host = (handler.headers.get("Host") or handler.headers.get("X-Forwarded-Host")
             or handler.headers.get("CF-Connecting-Host") or "").strip()
-    # Strip port safely, including IPv6 bracket notation.
     if host.startswith("[") and "]" in host:
         host = host[1:host.index("]")]
     elif host.count(":") == 1:
@@ -851,8 +980,109 @@ def server_domain(handler):
     return ""
 
 
+# ---------------------------------------------------------------------------
+# Cloudflare Tunnel domain watcher
+# ---------------------------------------------------------------------------
+
+_CF_INGRESS_RE = re.compile(
+    r'hostname\\?"\s*:\s*\\?"([^"\\]+)\\?"\s*,\s*'
+    r'\\?"service\\?"\s*:\s*\\?"([^"\\]+)\\?"'
+)
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _parse_cloudflared_ingress(line):
+    if "Updated to new configuration" not in line or "config=" not in line:
+        return []
+    line = _ANSI_ESCAPE.sub("", line)
+    return _CF_INGRESS_RE.findall(line)
+
+
+def _match_domain_for_port(pairs, port):
+    for hostname, service in pairs:
+        if not hostname or not service:
+            continue
+        if re.search(rf":{port}(?:[/?\"']|$)", service):
+            return hostname.strip()
+    return ""
+
+
+def _save_domain_state_locked():
+    try:
+        os.makedirs(os.path.dirname(DOMAIN_STATE_FILE) or ".", exist_ok=True)
+        tmp = DOMAIN_STATE_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(DOMAIN_STATE, f)
+        os.replace(tmp, DOMAIN_STATE_FILE)
+    except OSError as exc:
+        print(f"[domain] state save failed: {exc}")
+
+
+def _load_domain_state():
+    try:
+        with open(DOMAIN_STATE_FILE, encoding="utf-8") as f:
+            saved = json.load(f)
+    except (OSError, ValueError):
+        return
+    if isinstance(saved, dict) and saved.get("domain"):
+        with DOMAIN_STATE_LOCK:
+            DOMAIN_STATE["domain"] = str(saved["domain"]).strip()
+            DOMAIN_STATE["updated_at"] = saved.get("updated_at")
+        print(f"[domain] loaded cached domain: {DOMAIN_STATE['domain']}")
+
+
+def _refresh_domain_from_cloudflared():
+    if not os.path.exists(CLOUDFLARED_LOG_FILE):
+        return
+    try:
+        with open(CLOUDFLARED_LOG_FILE, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            read_size = min(size, 128 * 1024)
+            f.seek(size - read_size)
+            tail = f.read().decode("utf-8", errors="replace")
+    except OSError as exc:
+        print(f"[domain] log read failed: {exc}")
+        return
+
+    latest_pairs = []
+    for line in reversed(tail.splitlines()):
+        if "Updated to new configuration" in line:
+            latest_pairs = _parse_cloudflared_ingress(line)
+            break
+    if not latest_pairs:
+        return
+
+    hostname = _match_domain_for_port(latest_pairs, XRAY_PROXY_PORT)
+    if not hostname:
+        return
+
+    with DOMAIN_STATE_LOCK:
+        if DOMAIN_STATE.get("domain") == hostname:
+            return
+        DOMAIN_STATE["domain"] = hostname
+        DOMAIN_STATE["updated_at"] = datetime.now().astimezone().isoformat(
+            timespec="seconds"
+        )
+        _save_domain_state_locked()
+    print(f"[domain] detected from cloudflared: {hostname} (port {XRAY_PROXY_PORT})")
+
+
+def domain_watcher_loop():
+    _load_domain_state()
+    while True:
+        try:
+            _refresh_domain_from_cloudflared()
+        except Exception as exc:
+            print(f"[domain] watcher error: {exc}")
+        time.sleep(DOMAIN_REFRESH_SEC)
+
+
+# ---------------------------------------------------------------------------
+# Online Xray users
+# ---------------------------------------------------------------------------
+
 def get_online_xray_users():
-    """Read per-user online counters from Xray StatsService on loopback."""
     try:
         proc = subprocess.run(
             ["xray", "api", "statsquery", "--server=127.0.0.1:10085",
@@ -874,7 +1104,6 @@ def get_online_xray_users():
         return []
 
 
-
 # ---------------------------------------------------------------------------
 # Container network traffic metrics
 # ---------------------------------------------------------------------------
@@ -891,7 +1120,6 @@ TRAFFIC_STATE = {
 
 
 def read_network_counters():
-    """Aggregate RX/TX bytes for visible container interfaces except loopback."""
     counters = {}
     try:
         with open("/proc/net/dev", encoding="utf-8") as f:
@@ -1005,6 +1233,7 @@ def traffic_payload():
             "updated_at": TRAFFIC_STATE.get("updated_at"),
             "sample_interval_seconds": TRAFFIC_SAMPLE_SECONDS,
         }
+
 
 def stats_payload(handler):
     try:
@@ -1203,6 +1432,12 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     print(f"[app] Panel berjalan di http://{HOST}:{PORT}")
-    sampler = threading.Thread(target=traffic_sampler_loop, name="traffic-sampler", daemon=True)
+
+    # Auto-detect domain from cloudflared log (ingress -> port 8080).
+    threading.Thread(target=domain_watcher_loop,
+                     name="domain-watcher", daemon=True).start()
+
+    sampler = threading.Thread(target=traffic_sampler_loop,
+                               name="traffic-sampler", daemon=True)
     sampler.start()
     ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
