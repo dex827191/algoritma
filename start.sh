@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-# UI app listens on APP_PORT=2053; Xray ingress has its own PORT (default 8080).
+# UI app listens on APP_PORT=2053; Xray ingress has its own XRAY_PROXY_PORT.
 nginx -c /app/nginx.conf
 
 # BADVPN UDPGW: dedicated UDP forwarding endpoint for SSH only.
@@ -41,7 +41,7 @@ sysctl -w net.core.wmem_max=16777216 2>/dev/null || true
 sysctl -w net.core.netdev_max_backlog=50000 2>/dev/null || true
 sysctl -w net.ipv4.tcp_max_syn_backlog=8192 2>/dev/null || true
 
-# Xray is owned only by ws_xray.py; SSH never passes through it.
+# Xray is owned only by proxy_wrapper.py; SSH never passes through it.
 (
   while true; do
     xray run -c /app/config.json
@@ -51,11 +51,8 @@ sysctl -w net.ipv4.tcp_max_syn_backlog=8192 2>/dev/null || true
 ) &
 XRAY_PID=$!
 
-# ============================================================
-# UI/API dilayani LANGSUNG oleh app.py (public di 0.0.0.0:2053).
-# Tidak lagi lewat nginx / proxy_wrapper.py.
-# ============================================================
-APP_HOST=0.0.0.0 APP_PORT="${APP_PORT:-2053}" python3 /app/app.py &
+# Existing web account generator/API page.
+python3 /app/app.py &
 APP_PID=$!
 
 # SSH backend: Dropbear -> WebSocket proxy -> TCP mux on SSH_PORT (ENV).
@@ -100,20 +97,17 @@ stunnel /etc/stunnel/stunnel.conf &
 WS_PORT=8880 WS_TARGET_HOST=127.0.0.1 WS_TARGET_PORT=22 \
   python3 /app/ws-proxy.py &
 
-# SSH mux has its own listener (8081); users connect SSH directly here.
+# SSH mux has its own listener; this does not change proxy_wrapper.py's Xray port.
 SSH_PORT="${SSH_PORT:-8081}" \
 SSL_TARGET_HOST=127.0.0.1 SSL_TARGET_PORT=2443 \
 WS_MUX_TARGET_HOST=127.0.0.1 WS_MUX_TARGET_PORT=8880 \
   python3 /app/mux.py &
 
-# One Cloudflare Tunnel can publish hostnames to different local services.
-#   UI/API  -> 127.0.0.1:2053
-#   Xray    -> 127.0.0.1:8080
-#   SSH     -> 127.0.0.1:8081
+# One Cloudflare Tunnel can publish two hostnames to two different local services.
 if [ -n "${CF_TOKEN:-}" ]; then
   cloudflared tunnel --no-autoupdate run --token "$CF_TOKEN" &
 fi
 
 trap 'kill "$XRAY_PID" "$APP_PID" 2>/dev/null || true; exit 0' INT TERM
-# Xray-only ingress. UI = 2053 (app.py), SSH = 8081 (mux.py) — both public.
-PORT="${PORT:-8080}" python3 /app/ws_xray.py
+# Keep the Xray ingress process in foreground; UI requests are forwarded to nginx -> app.py.
+XRAY_PROXY_PORT="${XRAY_PROXY_PORT:-8080}" python3 /app/proxy_wrapper.py

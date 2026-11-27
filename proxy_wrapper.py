@@ -1,11 +1,3 @@
-#!/usr/bin/env python3
-"""
-Xray ingress proxy — hanya untuk path Xray.
-
-UI/API  : dilayani langsung oleh app.py (port 2053, APP_HOST=0.0.0.0).
-SSH     : dilayani langsung oleh mux.py (port 8081).
-Request non-Xray pada port ini dibalas "200 OK" kosong (tidak diteruskan).
-"""
 import asyncio
 import os
 import re
@@ -109,13 +101,7 @@ async def handle_client(client_reader, client_writer):
                 )
                 return
             else:
-                # Non-Xray: bukan UI/API (UI dilayani app.py:2053 langsung),
-                # bukan SSH (SSH dilayani mux.py:8081 langsung).
-                client_writer.write(
-                    b"HTTP/1.1 200 OK\r\n"
-                    b"Content-Length: 0\r\n"
-                    b"Connection: keep-alive\r\n\r\n"
-                )
+                client_writer.write(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: keep-alive\r\n\r\n")
                 await client_writer.drain()
     except Exception:
         try:
