@@ -2,7 +2,7 @@ import asyncio
 import os
 import re
 
-PUBLIC_PORT = int(os.environ.get("XRAY_PROXY_PORT", "8080"))
+PUBLIC_PORT = int(os.environ.get("PORT", 8080))
 NGINX_HOST = "127.0.0.1"
 NGINX_PORT = 8082
 XRAY_PATHS = (
@@ -11,7 +11,7 @@ XRAY_PATHS = (
     "/trojan-xhttp", "/trojan-httpup", "/trojan"
 )
 
-async def pipe_client_to_up(reader, writer, strip_first_http_header=True):
+async def pipe_client_to_up(reader, writer):
     first_chunk = True
     try:
         while True:
@@ -20,10 +20,9 @@ async def pipe_client_to_up(reader, writer, strip_first_http_header=True):
                 break
             if first_chunk:
                 first_chunk = False
-                if strip_first_http_header:
-                    data = re.sub(rb"^HTTP/[^\r\n]*\r\n\r\n", b"", data)
-                    if not data:
-                        continue
+                data = re.sub(rb"^HTTP/[^\r\n]*\r\n\r\n", b"", data)
+                if not data:
+                    continue
             writer.write(data)
             await writer.drain()
     except Exception:
@@ -102,21 +101,8 @@ async def handle_client(client_reader, client_writer):
                 )
                 return
             else:
-                # UI/API requests share the Xray hostname and are served by nginx -> app.py:2053.
-                up_reader, up_writer = await asyncio.open_connection(NGINX_HOST, NGINX_PORT)
-                up_writer.write(raw_head)
-                await up_writer.drain()
-                if client_reader._buffer:
-                    buffered = bytes(client_reader._buffer)
-                    client_reader._buffer.clear()
-                    if buffered:
-                        up_writer.write(buffered)
-                        await up_writer.drain()
-                await asyncio.gather(
-                    pipe_client_to_up(client_reader, up_writer, strip_first_http_header=False),
-                    pipe_up_to_client(up_reader, client_writer),
-                )
-                return
+                client_writer.write(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: keep-alive\r\n\r\n")
+                await client_writer.drain()
     except Exception:
         try:
             client_writer.close()
