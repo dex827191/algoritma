@@ -287,6 +287,7 @@ tbody tr:last-child td{border-bottom:0}
     <button data-page="dashboard" class="active" onclick="navigate('dashboard')"><span class="ico">▦</span>Dashboard</button>
     <button data-page="ssh" onclick="navigate('ssh')"><span class="ico">♙</span>Buat Akun SSH</button>
     <button data-page="xray" onclick="navigate('xray')"><span class="ico">◉</span>Buat Akun Xray</button>
+    <button data-page="speedtest" onclick="navigate('speedtest')"><span class="ico">⚡</span>Speedtest Server</button>
   </nav>
   <div class="sidefoot"><div class="status"><span class="dot"></span>Public Self-Service</div></div>
 </aside>
@@ -321,7 +322,7 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 function toast(msg,type=''){const el=$('toast');el.textContent=msg;el.className='toast '+type;clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>el.classList.add('hidden'),3500)}
 async function api(url,opts={}){const r=await fetch(url,opts);let d;try{d=await r.json()}catch{throw Error('Respons server tidak valid')}if(!r.ok&&d.status!=='error')throw Error(d.message||`HTTP ${r.status}`);return d}
 function toggleNav(v){$('sidebar').classList.toggle('open',v);$('overlay').classList.toggle('show',v)}
-function navigate(page){currentPage=page;document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===page));$('topTitle').textContent=({dashboard:'Dashboard',ssh:'Buat Akun SSH',xray:'Buat Akun Xray'})[page];toggleNav(false);render()}
+function navigate(page){currentPage=page;document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===page));$('topTitle').textContent=({dashboard:'Dashboard',ssh:'Buat Akun SSH',xray:'Buat Akun Xray',speedtest:'Speedtest Server'})[page];toggleNav(false);render()}
 function card(title,body){return `<section class="card"><h3>${title}</h3>${body}</section>`}
 
 // -------------------- Detail modal --------------------
@@ -365,6 +366,7 @@ function render(){
   if(currentPage==='dashboard')renderDashboard();
   if(currentPage==='ssh')renderSSH();
   if(currentPage==='xray')renderXray();
+  if(currentPage==='speedtest')renderSpeedtest();
 }
 
 function fmtBytes(n){
@@ -457,7 +459,7 @@ async function renderSSH(){
 }
 
 async function createSSH(){
-  const u=$('sshUser').value.trim(),p=$('sshPass').value;
+  const u=$('sshUser').value.trim().toLowerCase(),p=$('sshPass').value;
   if(!u||!p)return toast('Isi username dan password','error');
   try{
     const d=await api('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user:u,pass:p})});
@@ -505,7 +507,7 @@ async function renderXray(){
 }
 
 async function createXray(){
-  const name=$('xrayName').value.trim();
+  const name=$('xrayName').value.trim().toLowerCase();
   if(!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,23}$/.test(name))return toast('Nama 1–24 karakter: huruf, angka, _ atau -','error');
   try{
     const d=await api('/api/xray/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
@@ -575,6 +577,14 @@ function showXray(id){
     links.filter(x=>x.p===p).forEach(x=>{text+=`[${x.t} · ${x.path} · Port ${x.port} · ${x.security}]\\n${x.link}\\n\\n`});
   });
   openDetail('Akun Xray: '+a.name,text);
+}
+
+function renderSpeedtest(){
+  $("view").innerHTML=`<section class="card"><h3>⚡ Speedtest Server</h3><p class="muted">Tes koneksi internet dari server ini melalui Speedtest CLI resmi Ookla.</p><button class="btn filled" id="runSpeed" onclick="runSpeedtest()">Mulai Speedtest</button><div id="speedResult" class="mt"></div></section>`;
+}
+async function runSpeedtest(){
+  const b=$("runSpeed"),out=$("speedResult");if(!b||!out)return;b.disabled=true;b.textContent="Menjalankan test...";out.innerHTML="<p>Test sedang berjalan. Ini bisa memakan waktu hingga 2 menit.</p>";
+  try{const d=await api('/api/speedtest',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});const r=d.result||{};out.innerHTML=`<div class="grid four mt"><div class="stat"><div class="muted">Download</div><div class="v">${esc(r.download?.bandwidth?((r.download.bandwidth*8/1e6).toFixed(2)+' Mbps'):'-')}</div></div><div class="stat"><div class="muted">Upload</div><div class="v">${esc(r.upload?.bandwidth?((r.upload.bandwidth*8/1e6).toFixed(2)+' Mbps'):'-')}</div></div><div class="stat"><div class="muted">Ping</div><div class="v">${esc(r.ping?.latency!=null?(r.ping.latency.toFixed(2)+' ms'):'-')}</div></div><div class="stat"><div class="muted">Jitter</div><div class="v">${esc(r.ping?.jitter!=null?(r.ping.jitter.toFixed(2)+' ms'):'-')}</div></div></div><p class="muted mt">Server: ${esc(r.server?.name||'-')} ${esc(r.server?.location||'')} · ISP: ${esc(r.isp||'-')}</p>`;}catch(e){out.innerHTML=`<p class="error">${esc(e.message)}</p>`;}finally{b.disabled=false;b.textContent="Mulai Speedtest";}
 }
 
 // -------------------- Misc --------------------
@@ -1107,6 +1117,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path in ("/", "/index.html"):
                 self.send_html(INDEX_HTML)
+            elif path == "/api/speedtest/status":
+                self.send_json({"status":"success","available":shutil.which("speedtest") is not None})
             elif path == "/api/list":
                 self.send_json({"status": "success", "users": list_ssh_users()})
             elif path == "/api/xray/list":
@@ -1135,8 +1147,19 @@ class Handler(BaseHTTPRequestHandler):
         try:
             data = self.read_body()
 
-            if path == "/api/add":
-                user = str(data.get("user", "")).strip()
+            if path == "/api/speedtest":
+                binary = shutil.which("speedtest")
+                if not binary:
+                    raise ValueError("Speedtest CLI resmi belum terpasang di server.")
+                proc = subprocess.run([binary, "--accept-license", "--accept-gdpr", "--format=json"],
+                    capture_output=True, text=True, timeout=120)
+                if proc.returncode != 0:
+                    raise ValueError((proc.stderr or proc.stdout or "Speedtest gagal.")[-1000:])
+                result = json.loads(proc.stdout)
+                self.send_json({"status":"success","result":result})
+
+            elif path == "/api/add":
+                user = str(data.get("user", "")).strip().lower()
                 password = str(data.get("pass", ""))
                 account = add_ssh_user(user, password)
                 msg = (
@@ -1156,7 +1179,7 @@ class Handler(BaseHTTPRequestHandler):
                                 "message": f"Akun SSH {user} berhasil dihapus."})
 
             elif path == "/api/xray/add":
-                name = str(data.get("name", "")).strip()
+                name = str(data.get("name", "")).strip().lower()
                 if not XRAY_NAME_RE.fullmatch(name):
                     raise ValueError("Nama 1–24 karakter: huruf, angka, _ atau -.")
                 users = load_xray_users()

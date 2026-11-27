@@ -27,6 +27,11 @@ RUN wget -q \
     && chmod +x /usr/local/bin/badvpn-udpgw \
     && rm -rf /tmp/badvpn-1.999.130 /tmp/badvpn.tar.gz
 
+# Install official Ookla Speedtest CLI for the panel's speed test feature.
+RUN curl -fsSL https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | bash \
+    && apt-get update && apt-get install -y --no-install-recommends speedtest \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN curl -fsSL -o /usr/local/bin/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
     && chmod +x /usr/local/bin/cloudflared
 COPY . /app/
