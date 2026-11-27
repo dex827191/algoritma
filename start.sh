@@ -4,6 +4,43 @@ set -eu
 # UI app listens on APP_PORT=2053; Xray ingress has its own XRAY_PROXY_PORT.
 nginx -c /app/nginx.conf
 
+# BADVPN UDPGW: dedicated UDP forwarding endpoint for SSH only.
+NET_BIN="${NET_BIN:-/usr/local/bin/badvpn-udpgw}"
+UDPGW_PORT="${UDPGW_PORT:-7300}"
+UDPGW_MAX_CLIENTS="${UDPGW_MAX_CLIENTS:-2048}"
+
+if [ -x "$NET_BIN" ]; then
+  echo "[*] Starting SSH UDPGW on UDP ${UDPGW_PORT}..."
+  "$NET_BIN" \
+    --listen-addr "0.0.0.0:${UDPGW_PORT}" \
+    --max-clients "${UDPGW_MAX_CLIENTS}" \
+    --max-connections-for-client 50 \
+    --loglevel 0 >/dev/null 2>&1 &
+  UDPGW_PID=$!
+else
+  echo "[!] BADVPN binary not found at ${NET_BIN}; SSH UDPGW skipped."
+fi
+
+# Best-effort kernel tuning. Containers often lack permission to change sysctls.
+echo "[*] Applying best-effort kernel tweaks..."
+sysctl -w net.ipv4.tcp_tw_reuse=1 2>/dev/null || true
+sysctl -w net.ipv4.tcp_fin_timeout=10 2>/dev/null || true
+sysctl -w net.core.default_qdisc=fq 2>/dev/null || true
+
+if [ "${ENABLE_BBR:-false}" = "true" ]; then
+  sysctl -w net.ipv4.tcp_congestion_control=bbr 2>/dev/null || \
+    sysctl -w net.ipv4.tcp_congestion_control=cubic 2>/dev/null || true
+else
+  sysctl -w net.ipv4.tcp_congestion_control=cubic 2>/dev/null || true
+fi
+
+sysctl -w net.ipv4.tcp_rmem="4096 8388608 16777216" 2>/dev/null || true
+sysctl -w net.ipv4.tcp_wmem="4096 8388608 16777216" 2>/dev/null || true
+sysctl -w net.core.rmem_max=16777216 2>/dev/null || true
+sysctl -w net.core.wmem_max=16777216 2>/dev/null || true
+sysctl -w net.core.netdev_max_backlog=50000 2>/dev/null || true
+sysctl -w net.ipv4.tcp_max_syn_backlog=8192 2>/dev/null || true
+
 # Xray is owned only by proxy_wrapper.py; SSH never passes through it.
 (
   while true; do

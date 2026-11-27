@@ -28,6 +28,8 @@ XRAY_DOMAIN = os.environ.get("XRAY_DOMAIN", "").strip()
 SSH_DOMAIN = os.environ.get("SSH_DOMAIN", "").strip()
 XRAY_PROXY_PORT = int(os.environ.get("XRAY_PROXY_PORT", "8080"))
 SSH_PUBLIC_PORT = int(os.environ.get("SSH_PORT", "8081"))
+UDPGW_PORT = int(os.environ.get("UDPGW_PORT", "7300"))
+ENABLE_BBR = os.environ.get("ENABLE_BBR", "false").lower()
 
 XRAY_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,23}")
 
@@ -140,6 +142,8 @@ async function refreshDashboard(){
     if(c)c.textContent=d.ssh_online||'0';
     if(b)b.textContent=(d.online_users||[]).length?`${(d.online_users||[]).length} koneksi aktif`:'Tidak ada koneksi';
     if(box)box.innerHTML=renderOnlineTable(d.online_users||[]);
+    const xbox=document.getElementById('xrayOnlineCardInner');
+    if(xbox)xbox.innerHTML=renderXrayOnlineTable(d.xray_online_users||[]);
   }catch(e){}
 }
 
@@ -153,7 +157,7 @@ function renderOnlineTable(users){
   users=users||[];
   if(!users.length)return '<div class="empty">Tidak ada koneksi SSH aktif saat ini.</div>';
   return `<div class="tablewrap"><table>
-    <thead><tr><th>User</th><th>IP Address</th><th>TTY</th><th>Login</th><th>Idle</th></tr></thead>
+    <thead><tr><th>User</th><th>IP peer</th><th>TTY</th><th>Login</th><th>Idle</th></tr></thead>
     <tbody>${users.map(u=>`<tr>
       <td><b>${esc(u.user)}</b></td>
       <td class="mono">${esc(u.ip)}</td>
@@ -161,6 +165,15 @@ function renderOnlineTable(users){
       <td class="small">${esc(u.since||'-')}</td>
       <td class="small">${esc(u.idle||'-')}</td>
     </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+function renderXrayOnlineTable(users){
+  users=users||[];
+  if(!users.length)return '<div class="empty">Belum ada user Xray aktif, atau statistik Xray belum tersedia.</div>';
+  return `<div class="tablewrap"><table>
+    <thead><tr><th>Username</th><th>Koneksi aktif</th><th>IP sumber</th></tr></thead>
+    <tbody>${users.map(u=>`<tr><td><b>${esc(u.user)}</b></td><td>${esc(u.connections)}</td><td class="small muted">${esc(u.ip||'Tidak tersedia')}</td></tr>`).join('')}</tbody>
   </table></div>`;
 }
 
@@ -187,7 +200,9 @@ function renderDashboard(){
     </div>
     <div class="grid five">${statsHTML}</div>
     ${card('SSH Online Users <button class="btn textbtn" style="float:right;font-size:12px;min-height:auto;padding:4px 10px" onclick="refreshDashboard()">↻ Refresh</button>',
-      `<div id="onlineCardInner">${renderOnlineTable(online)}</div>`)}
+      `<div id="onlineCardInner">${renderOnlineTable(online)}</div><p class="notice mt">Jika SSH melewati Cloudflare Tunnel, IP peer yang terlihat bisa berupa alamat perantara Cloudflare, bukan IP publik asli perangkat pengguna.</p>`)}
+    ${card('Xray Online Users · VLESS / VMess / Trojan',
+      `<div id="xrayOnlineCardInner">${renderXrayOnlineTable(s.xray_online_users||[])}</div><p class="notice mt">Catatan IP: Cloudflare Tunnel tidak meneruskan alamat IP klien sebagai alamat peer TCP ke Xray. Karena itu dashboard tidak menebak IP; kolom IP akan ditandai tidak tersedia.</p>`)}
     ${card('Traffic Metrics',`<div class="traffic">
       <div><div class="muted small">↓ DOWNLOAD</div><b style="font-size:22px">128.4 MB</b>
         <div class="sub">Kecepatan simulasi: <span>${(100+Math.random()*100).toFixed(1)}</span> KB/s</div></div>
@@ -198,7 +213,7 @@ function renderDashboard(){
         ${Array.from({length:35},()=>`<i style="display:block;flex:1;height:${10+Math.random()*90}%;border-radius:4px 4px 0 0;background:#8b78bd"></i>`).join('')}
       </div></div>`)}
     ${card('Info Pengaturan Server',`<div class="grid">
-      ${[['SSH Backend Port',s.ws_proxy_cfg?.sshPort||22],['UI Panel',8080],
+      ${[['SSH Backend Port',s.ws_proxy_cfg?.sshPort||22],['UI Panel',s.ui_port||2053],
          ['Xray Proxy',s.xray_proxy_port||8080],['SSH Mux',s.ssh_port||8081],
          ['Xray','data/config.json'],['BBR',s.sys_settings?.enable_bbr==='true'?'ON':'OFF'],
          ['UDPGW',s.sys_settings?.udpgw_port||7300]]
@@ -367,7 +382,7 @@ async function copyText(text){
   await loadInfo();
   await loadStats();
   render();
-  setInterval(refreshDashboard,20000);   // live online users (20s)
+  setInterval(refreshDashboard,5000);    // live SSH + Xray online users (5s)
   setInterval(loadStats,300000);         // full refresh (5min)
 })();
 </script></body></html>
@@ -625,6 +640,29 @@ def server_domain(handler):
     return ""
 
 
+def get_online_xray_users():
+    """Read per-user online counters from Xray StatsService on loopback."""
+    try:
+        proc = subprocess.run(
+            ["xray", "api", "statsquery", "--server=127.0.0.1:10085",
+             "-pattern", "user>>>", "-reset=false"],
+            capture_output=True, text=True, timeout=3,
+        )
+        if proc.returncode != 0:
+            return []
+        output = (proc.stdout or "") + "\n" + (proc.stderr or "")
+        online = {}
+        for line in output.splitlines():
+            match = re.search(r"user>>>(.+?)>>>online\s*:\s*(\d+)", line.strip())
+            if match and int(match.group(2)) > 0:
+                online[match.group(1)] = int(match.group(2))
+        return [{"user": name, "connections": count,
+                 "ip": "Tidak tersedia melalui Cloudflare Tunnel"}
+                for name, count in sorted(online.items())]
+    except Exception:
+        return []
+
+
 def stats_payload(handler):
     try:
         with open("/proc/cpuinfo", encoding="utf-8") as f:
@@ -664,6 +702,7 @@ def stats_payload(handler):
         pass
 
     online = get_online_ssh_users()
+    xray_online = get_online_xray_users()
     online_count = len(online)
     online_brief = (
         ", ".join(f"{u['user']}@{u['ip']}" for u in online)
@@ -680,6 +719,8 @@ def stats_payload(handler):
         "ssh_online": str(online_count),
         "user_list_details": online_brief,
         "online_users": online,
+        "xray_online_users": xray_online,
+        "xray_online": str(sum(u.get("connections", 0) for u in xray_online)),
         "domain": server_domain(handler),
         "xray_domain": XRAY_DOMAIN or server_domain(handler),
         "ssh_domain": SSH_DOMAIN,
@@ -687,7 +728,7 @@ def stats_payload(handler):
         "xray_proxy_port": XRAY_PROXY_PORT,
         "ssh_port": SSH_PUBLIC_PORT,
         "ws_proxy_cfg": {"sshPort": 22},
-        "sys_settings": {"enable_bbr": "false", "udpgw_port": 7300},
+        "sys_settings": {"enable_bbr": ENABLE_BBR, "udpgw_port": UDPGW_PORT},
     }
 
 
@@ -746,6 +787,7 @@ class Handler(BaseHTTPRequestHandler):
                     "ui_port": PORT,
                     "xray_proxy_port": XRAY_PROXY_PORT,
                     "ssh_port": SSH_PUBLIC_PORT,
+                    "udpgw_port": UDPGW_PORT,
                 })
             else:
                 self.send_json({"status": "error", "message": "Endpoint tidak ditemukan."}, 404)
