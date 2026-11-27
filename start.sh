@@ -7,8 +7,10 @@ set -m
 # =================================================================
 
 NET_BIN="/usr/local/bin/badvpn-udpgw"
-UDPGW_PORT="${UDPGW_PORT:-7300}"
-UDPGW_MAX_CLIENTS="${UDPGW_MAX_CLIENTS:-1000}"
+# UDPGW adalah relay UDP-over-TCP untuk klien SSH saja; tidak terkait Xray.
+SSH_UDPGW_PORT="${SSH_UDPGW_PORT:-${UDPGW_PORT:-7300}}"
+SSH_UDPGW_MAX_CLIENTS="${SSH_UDPGW_MAX_CLIENTS:-${UDPGW_MAX_CLIENTS:-1000}}"
+ENABLE_SSH_UDPGW="${ENABLE_SSH_UDPGW:-true}"
 ENABLE_BBR="${ENABLE_BBR:-true}"
 
 NGINX_CONFIG="/app/nginx.conf"
@@ -38,7 +40,8 @@ echo "    APP_PORT        : ${APP_PORT}"
 echo "    XRAY_PROXY_PORT : ${XRAY_PROXY_PORT}"
 echo "    NGINX_PORT      : ${NGINX_PORT}"
 echo "    SSH_PORT        : ${SSH_PORT}"
-echo "    UDPGW_PORT      : ${UDPGW_PORT}"
+echo "    SSH_UDPGW_PORT  : ${SSH_UDPGW_PORT}"
+echo "    SSH_UDPGW       : ${ENABLE_SSH_UDPGW}"
 echo "=========================================================="
 
 # =================================================================
@@ -141,23 +144,33 @@ echo "[*] Starting stunnel..."
 stunnel4 /etc/stunnel/stunnel.conf &
 
 # =================================================================
-# BADVPN UDPGW
+# BADVPN UDPGW - KHUSUS KLIEN SSH
+# UDPGW BadVPN menerima koneksi TCP (UDP-over-TCP), bukan listener UDP.
+# Xray tidak diarahkan dan tidak menggunakan layanan ini.
 # =================================================================
 
-if [ -f "$NET_BIN" ]; then
+if [ "$ENABLE_SSH_UDPGW" = "true" ]; then
+    if [ -x "$NET_BIN" ]; then
+        echo "[*] Starting SSH UDPGW (TCP) on 0.0.0.0:${SSH_UDPGW_PORT}..."
 
-    echo "[*] Starting UDPGW on ${UDPGW_PORT}..."
+        nohup "$NET_BIN" \
+            --listen-addr "0.0.0.0:${SSH_UDPGW_PORT}" \
+            --max-clients "${SSH_UDPGW_MAX_CLIENTS}" \
+            --max-connections-for-client 50 \
+            --loglevel 0 >/var/log/ssh-udpgw.log 2>&1 &
 
-    nohup "$NET_BIN" \
-        --listen-addr "0.0.0.0:${UDPGW_PORT}" \
-        --max-clients "${UDPGW_MAX_CLIENTS}" \
-        --max-connections-for-client 50 \
-        --loglevel 0 >/dev/null 2>&1 &
-
+        SSH_UDPGW_PID=$!
+        sleep 1
+        if kill -0 "$SSH_UDPGW_PID" 2>/dev/null; then
+            echo "[OK] SSH UDPGW aktif pada TCP ${SSH_UDPGW_PORT}."
+        else
+            echo "[!] SSH UDPGW gagal start. Periksa /var/log/ssh-udpgw.log."
+        fi
+    else
+        echo "[!] Binary BadVPN tidak ditemukan. SSH UDPGW dilewati."
+    fi
 else
-
-    echo "[!] BadVPN tidak ditemukan. UDPGW dilewati."
-
+    echo "[i] SSH UDPGW dinonaktifkan (ENABLE_SSH_UDPGW=false)."
 fi
 
 # =================================================================
@@ -426,7 +439,12 @@ echo "Nginx       : 127.0.0.1:${NGINX_PORT}"
 echo "App UI      : 127.0.0.1:${APP_PORT}"
 echo "SSH Mux     : 0.0.0.0:${SSH_PORT}"
 echo "WS SSH      : 0.0.0.0:8880"
-echo "UDPGW       : 0.0.0.0:${UDPGW_PORT}/udp"
+if [ "$ENABLE_SSH_UDPGW" = "true" ]; then
+    echo "SSH UDPGW   : 0.0.0.0:${SSH_UDPGW_PORT}/tcp"
+else
+    echo "SSH UDPGW   : DISABLED"
+fi
+echo "Xray UDPGW  : TIDAK DIGUNAKAN"
 
 if [ -n "${CF_TOKEN:-}" ]; then
     echo "Cloudflare  : Tunnel aktif"

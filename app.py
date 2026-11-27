@@ -28,7 +28,7 @@ XRAY_DOMAIN = os.environ.get("XRAY_DOMAIN", "").strip()
 SSH_DOMAIN = os.environ.get("SSH_DOMAIN", "").strip()
 XRAY_PROXY_PORT = int(os.environ.get("XRAY_PROXY_PORT", "8080"))
 SSH_PUBLIC_PORT = int(os.environ.get("SSH_PORT", "8081"))
-UDPGW_PORT = int(os.environ.get("UDPGW_PORT", "7300"))
+SSH_UDPGW_PORT = int(os.environ.get("SSH_UDPGW_PORT", os.environ.get("UDPGW_PORT", "7300")))
 ENABLE_BBR = os.environ.get("ENABLE_BBR", "false").lower() == "true"
 
 XRAY_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,23}")
@@ -203,7 +203,7 @@ function renderDashboard(){
       ${[['SSH Backend Port',s.ws_proxy_cfg?.sshPort||22],['UI Panel',s.ui_port||2053],
          ['Xray Proxy',s.xray_proxy_port||8080],['SSH Mux',s.ssh_port||8081],
          ['Xray','data/config.json'],['BBR',s.sys_settings?.enable_bbr==='true'?'ON':'OFF'],
-         ['UDPGW',s.sys_settings?.udpgw_port||7300]]
+         ['SSH UDPGW (TCP)',s.sys_settings?.ssh_udpgw_port||7300]]
         .map(x=>`<div><span class="muted">${x[0]}</span><br><b>${esc(x[1])}</b></div>`).join('')}
     </div>`)}
     ${card('Domain & Service Paths',`
@@ -716,7 +716,7 @@ def stats_payload(handler):
         "ws_proxy_cfg": {"sshPort": 22},
         "sys_settings": {
             "enable_bbr": "true" if ENABLE_BBR else "false",
-            "udpgw_port": UDPGW_PORT,
+            "ssh_udpgw_port": SSH_UDPGW_PORT,
         },
     }
 

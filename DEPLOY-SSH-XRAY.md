@@ -29,3 +29,11 @@ The SSH hostname must be used for SSH WebSocket-over-HTTPS clients. Do not route
 - `DOMAIN`: backward-compatible fallback for `XRAY_DOMAIN`.
 
 The dashboard obtains domain and port values from `/__info`, so its labels and generated links follow ENV settings rather than hardcoded hostnames.
+
+## SSH UDPGW (terpisah dari Xray)
+- BadVPN UDPGW hanya disediakan sebagai relay UDP-over-TCP untuk klien SSH yang mendukung fitur UDPGW.
+- Listener UDPGW menggunakan **TCP** pada `SSH_UDPGW_PORT=7300` (bukan UDP/7300).
+- Atur `ENABLE_SSH_UDPGW=true` untuk mengaktifkannya atau `false` untuk menonaktifkan.
+- `SSH_UDPGW_MAX_CLIENTS=1000` mengatur batas klien.
+- UDPGW berdiri sebagai layanan SSH terpisah. Tidak ada inbound/outbound Xray yang diarahkan ke UDPGW; VMess, VLESS, Trojan, dan REALITY tetap memakai transport serta routing Xray masing-masing.
+- Jika memakai firewall atau port mapping, buka/teruskan **TCP 7300** hanya bila klien SSH memang memerlukan UDPGW.

@@ -130,12 +130,12 @@ RUN echo "===== VERIFY ARCHITECTURE =====" \
 # 8080 = Railway HTTP gateway / UI / Xray
 # 8081 = SSH Mux
 # 8880 = SSH WebSocket
-# 7300 = UDPGW
+# 7300/TCP = SSH UDPGW (BadVPN UDP-over-TCP relay); not used by Xray
 
 EXPOSE 8080
 EXPOSE 8081
 EXPOSE 8880
-EXPOSE 7300/udp
+EXPOSE 7300/tcp
 
 # ============================================================
 # START APPLICATION
