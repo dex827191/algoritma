@@ -32,6 +32,11 @@ echo "    APP_PORT (UI internal)   = ${APP_PORT}"
 echo "    XRAY_PROXY_PORT (publik) = ${XRAY_PROXY_PORT}"
 echo "    SSH_PORT (mux publik)    = ${SSH_PORT}"
 echo "    UDPGW_PORT (UDP relay)   = ${UDPGW_PORT}"
+if [ -n "${CF_TOKEN:-}" ]; then
+    echo "    CF_TOKEN                 = ****(aktif)"
+else
+    echo "    CF_TOKEN                 = (kosong, tunnel dilewati)"
+fi
 echo "=========================================================="
 
 # =================================================================
@@ -191,7 +196,6 @@ if ! kill -0 $PROXY_PID 2>/dev/null; then
     exit 1
 fi
 
-# Verifikasi port publik benar-benar listen
 if command -v ss >/dev/null 2>&1; then
     if ! ss -tln 2>/dev/null | grep -q ":${XRAY_PROXY_PORT} "; then
         echo "[FATAL] Port ${XRAY_PROXY_PORT} tidak listen. Railway health check akan gagal."
@@ -215,6 +219,37 @@ echo "[*] Starting mux.py di 0.0.0.0:${SSH_PORT}..."
 SSH_PORT=${SSH_PORT} python3 /app/mux.py &
 
 # =================================================================
+# Cloudflare Tunnel — publikasi 2 hostname ke 2 service lokal
+# -----------------------------------------------------------------
+# Konfigurasi ingress di Cloudflare Zero Trust dashboard
+# (Networks → Tunnels → Public Hostname), contoh:
+#   panel.domain.com   →  HTTP  localhost:8080   (UI panel via proxy_wrapper)
+#   xray.domain.com    →  HTTP  localhost:8080   (Xray paths juga via proxy_wrapper)
+#   ssh.domain.com     →  SSH   localhost:8081   (mux SSH TCP)
+#
+# Satu cloudflared dapat mem-publish banyak hostname sekaligus.
+# Cukup set CF_TOKEN di Railway Variables.
+# =================================================================
+if [ -n "${CF_TOKEN:-}" ]; then
+    if command -v cloudflared >/dev/null 2>&1; then
+        echo "[*] Starting Cloudflare Tunnel (CF_TOKEN aktif)..."
+        nohup cloudflared tunnel --no-autoupdate run --token "$CF_TOKEN" \
+            >/var/log/cloudflared.log 2>&1 &
+        CF_PID=$!
+        sleep 2
+        if kill -0 $CF_PID 2>/dev/null; then
+            echo "[OK] cloudflared berjalan (PID $CF_PID), log: /var/log/cloudflared.log"
+        else
+            echo "[!] cloudflared gagal start. Cek /var/log/cloudflared.log"
+        fi
+    else
+        echo "[!] cloudflared tidak ditemukan di PATH, tunnel dilewati."
+    fi
+else
+    echo "[i] CF_TOKEN kosong — Cloudflare Tunnel dilewati."
+fi
+
+# =================================================================
 # Ringkasan akhir
 # =================================================================
 sleep 1
@@ -225,9 +260,12 @@ echo "    Xray paths  : /xhttp /vless /vmess /trojan ..."
 echo "    SSH mux     : 0.0.0.0:${SSH_PORT}  (TCP + TLS)"
 echo "    WS SSH      : 0.0.0.0:8880  (WebSocket)"
 echo "    UDPGW       : 0.0.0.0:${UDPGW_PORT}/udp"
+if [ -n "${CF_TOKEN:-}" ]; then
+    echo "    Cloudflare  : tunnel aktif (ingress diatur di dashboard CF)"
+fi
 echo "=========================================================="
 
 # =================================================================
-# Tunggu semua proses (Railway anggap container hidup selama ini)
+# Tunggu semua proses
 # =================================================================
 wait
