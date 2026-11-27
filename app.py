@@ -8,6 +8,8 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
+import time
 import uuid
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -76,7 +78,7 @@ INDEX_HTML = """<!doctype html>
 <script>
 'use strict';
 const $=id=>document.getElementById(id);
-let stats=null,serverInfo=null,currentPage='dashboard',sshUsers=[],xrayAccounts=[],detailText='';
+let stats=null,trafficStats=null,serverInfo=null,currentPage='dashboard',sshUsers=[],xrayAccounts=[],detailText='';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 function toast(msg,type=''){const el=$('toast');el.textContent=msg;el.className='toast '+type;clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>el.classList.add('hidden'),3500)}
@@ -119,6 +121,11 @@ function showXrayDetail(i){
 }
 
 // -------------------- Stats / dashboard --------------------
+async function loadTraffic(){
+  try{trafficStats=await api('/api/traffic');if(currentPage==='dashboard')renderDashboard();}
+  catch(e){trafficStats={error:e.message};if(currentPage==='dashboard')renderDashboard();}
+}
+
 async function loadStats(){
   try{
     stats=await api('/api/stats');
@@ -131,87 +138,47 @@ async function loadStats(){
   }
 }
 
-async function refreshDashboard(){
-  try{
-    const d=await api('/api/stats');
-    stats=d;
-    if(currentPage!=='dashboard')return;
-    const c=document.getElementById('sshOnlineCount');
-    const b=document.getElementById('sshOnlineBrief');
-    const box=document.getElementById('onlineCardInner');
-    if(c)c.textContent=d.ssh_online||'0';
-    if(b)b.textContent=(d.online_users||[]).length?`${(d.online_users||[]).length} koneksi aktif`:'Tidak ada koneksi';
-    if(box)box.innerHTML=renderOnlineTable(d.online_users||[]);
-    const xbox=document.getElementById('xrayOnlineCardInner');
-    if(xbox)xbox.innerHTML=renderXrayOnlineTable(d.xray_online_users||[]);
-  }catch(e){}
-}
-
 function render(){
   if(currentPage==='dashboard')renderDashboard();
   if(currentPage==='ssh')renderSSH();
   if(currentPage==='xray')renderXray();
 }
 
-function renderOnlineTable(users){
-  users=users||[];
-  if(!users.length)return '<div class="empty">Tidak ada koneksi SSH aktif saat ini.</div>';
-  return `<div class="tablewrap"><table>
-    <thead><tr><th>User</th><th>IP peer</th><th>TTY</th><th>Login</th><th>Idle</th></tr></thead>
-    <tbody>${users.map(u=>`<tr>
-      <td><b>${esc(u.user)}</b></td>
-      <td class="mono">${esc(u.ip)}</td>
-      <td class="mono small">${esc(u.tty||'-')}</td>
-      <td class="small">${esc(u.since||'-')}</td>
-      <td class="small">${esc(u.idle||'-')}</td>
-    </tr>`).join('')}</tbody>
-  </table></div>`;
+function fmtBytes(n){
+  n=Math.max(0,Number(n)||0);const u=['B','KB','MB','GB','TB'];let i=0;
+  while(n>=1024&&i<u.length-1){n/=1024;i++}return n.toFixed(i?2:0)+' '+u[i];
 }
-
-function renderXrayOnlineTable(users){
-  users=users||[];
-  if(!users.length)return '<div class="empty">Belum ada user Xray aktif, atau statistik Xray belum tersedia.</div>';
-  return `<div class="tablewrap"><table>
-    <thead><tr><th>Username</th><th>Koneksi aktif</th><th>IP sumber</th></tr></thead>
-    <tbody>${users.map(u=>`<tr><td><b>${esc(u.user)}</b></td><td>${esc(u.connections)}</td><td class="small muted">${esc(u.ip||'Tidak tersedia')}</td></tr>`).join('')}</tbody>
-  </table></div>`;
+function fmtRate(n){
+  n=Math.max(0,Number(n)||0);const u=['B/s','KB/s','MB/s','GB/s'];let i=0;
+  while(n>=1024&&i<u.length-1){n/=1024;i++}return n.toFixed(2)+' '+u[i];
 }
-
 function renderDashboard(){
-  const s=stats||{};
-  const online=s.online_users||[];
+  const s=stats||{},t=trafficStats||{};
   const values=[
     ['CPU MODEL',s.cpu_model||'Memuat...','Processor server'],
     ['RAM USED / TOTAL',(s.ram_used||'--')+' / '+(s.ram_total||'--'),'Penggunaan memori'],
     ['DISK USAGE',s.disk_usage||'--','Storage root'],
     ['SERVER UPTIME',s.uptime||'--','Waktu aktif'],
   ];
-  const statsHTML=values.map(v=>`<div class="stat"><div class="k">${v[0]}</div><div class="v">${esc(v[1])}</div><div class="sub">${esc(v[2])}</div></div>`).join('')
-    +`<div class="stat">
-       <div class="k">SSH ONLINE</div>
-       <div class="v"><span id="sshOnlineCount">${esc(s.ssh_online||'0')}</span> Active</div>
-       <div class="sub" id="sshOnlineBrief">${online.length?`${online.length} koneksi aktif`:'Tidak ada koneksi'}</div>
-     </div>`;
-
-  $('view').innerHTML=`
-    <div class="page-head">
-      <div><h1>Dashboard Server</h1><p>Ringkasan status dan performa server kamu.</p></div>
-      <span class="chip good">● Services Managed</span>
+  const statsHTML=values.map(v=>`<div class="stat"><div class="k">${v[0]}</div><div class="v">${esc(v[1])}</div><div class="sub">${esc(v[2])}</div></div>`).join('');
+  const d=t.download||{},u=t.upload||{},total=t.total||{},daily=t.daily||{},monthly=t.monthly||{};
+  const trafficCard=`
+    <div class="grid">
+      <div class="stat"><div class="k">↓ DOWNLOAD · SERVER TX</div><div class="v">${fmtRate(d.rate_bytes_per_sec)}</div><div class="sub">Total sejak mulai: ${fmtBytes(total.download_bytes)}</div></div>
+      <div class="stat"><div class="k">↑ UPLOAD · SERVER RX</div><div class="v">${fmtRate(u.rate_bytes_per_sec)}</div><div class="sub">Total sejak mulai: ${fmtBytes(total.upload_bytes)}</div></div>
     </div>
-    <div class="grid five">${statsHTML}</div>
-    ${card('SSH Online Users <button class="btn textbtn" style="float:right;font-size:12px;min-height:auto;padding:4px 10px" onclick="refreshDashboard()">↻ Refresh</button>',
-      `<div id="onlineCardInner">${renderOnlineTable(online)}</div><p class="notice mt">Jika SSH melewati Cloudflare Tunnel, IP peer yang terlihat bisa berupa alamat perantara Cloudflare, bukan IP publik asli perangkat pengguna.</p>`)}
-    ${card('Xray Online Users · VLESS / VMess / Trojan',
-      `<div id="xrayOnlineCardInner">${renderXrayOnlineTable(s.xray_online_users||[])}</div><p class="notice mt">Catatan IP: Cloudflare Tunnel tidak meneruskan alamat IP klien sebagai alamat peer TCP ke Xray. Karena itu dashboard tidak menebak IP; kolom IP akan ditandai tidak tersedia.</p>`)}
-    ${card('Traffic Metrics',`<div class="traffic">
-      <div><div class="muted small">↓ DOWNLOAD</div><b style="font-size:22px">128.4 MB</b>
-        <div class="sub">Kecepatan simulasi: <span>${(100+Math.random()*100).toFixed(1)}</span> KB/s</div></div>
-      <div><div class="muted small">↑ UPLOAD</div><b style="font-size:22px">96.2 MB</b>
-        <div class="sub">Kecepatan simulasi: <span>${(100+Math.random()*150).toFixed(2)}</span> KB/s</div></div>
-    </div><div class="mt"><div class="muted small">NETWORK ACTIVITY · LIVE VISUAL</div>
-      <div style="height:65px;display:flex;gap:3px;align-items:end;margin-top:8px">
-        ${Array.from({length:35},()=>`<i style="display:block;flex:1;height:${10+Math.random()*90}%;border-radius:4px 4px 0 0;background:#8b78bd"></i>`).join('')}
-      </div></div>`)}
+    <div class="mt"><div class="muted small">AKUMULASI HARI INI · ${esc(daily.date||'-')}</div><div class="grid">
+      <div><span class="muted small">Download</span><br><b>${fmtBytes(daily.download_bytes)}</b></div>
+      <div><span class="muted small">Upload</span><br><b>${fmtBytes(daily.upload_bytes)}</b></div></div></div>
+    <div class="mt"><div class="muted small">AKUMULASI BULAN INI · ${esc(monthly.month||'-')}</div><div class="grid">
+      <div><span class="muted small">Download</span><br><b>${fmtBytes(monthly.download_bytes)}</b></div>
+      <div><span class="muted small">Upload</span><br><b>${fmtBytes(monthly.upload_bytes)}</b></div></div></div>
+    <p class="muted small mt">Sumber: seluruh interface jaringan container (TX = data keluar dari server, RX = data masuk ke server). Sampling background setiap 5 detik. Bukan rincian per pengguna atau angka billing Railway.</p>
+    <p class="muted small">Terakhir diperbarui: ${esc(t.updated_at||'Menunggu sampel pertama')} · Interface: ${esc((t.interfaces||[]).join(', ')||'belum terdeteksi')}</p>`;
+  $('view').innerHTML=`
+    <div class="page-head"><div><h1>Dashboard Server</h1><p>Ringkasan status dan performa server kamu.</p></div><span class="chip good">● Services Managed</span></div>
+    <div class="grid four">${statsHTML}</div>
+    ${card('Traffic Metrics',trafficCard)}
     ${card('Info Pengaturan Server',`<div class="grid">
       ${[['SSH Backend Port',s.ws_proxy_cfg?.sshPort||22],['UI Panel',s.ui_port||2053],
          ['Xray Proxy',s.xray_proxy_port||8080],['SSH Mux',s.ssh_port||8081],
@@ -220,14 +187,9 @@ function renderDashboard(){
         .map(x=>`<div><span class="muted">${x[0]}</span><br><b>${esc(x[1])}</b></div>`).join('')}
     </div>`)}
     ${card('Domain & Service Paths',`
-      <div class="field"><label>Domain Xray (XRAY_DOMAIN)</label>
-        <div class="row"><input readonly value="${esc(s.xray_domain||s.domain||'Belum diatur di ENV')}">
-        <button class="btn tonal" onclick="copyText(this.dataset.copy)" data-copy="${esc(s.xray_domain||s.domain||'')}">Salin</button></div></div>
-      <div class="field"><label>Domain SSH (SSH_DOMAIN)</label>
-        <div class="row"><input readonly value="${esc(s.ssh_domain||'Belum diatur di ENV')}">
-        <button class="btn tonal" onclick="copyText(this.dataset.copy)" data-copy="${esc(s.ssh_domain||'')}">Salin</button></div></div>`)}`;
+      <div class="field"><label>Domain Xray (XRAY_DOMAIN)</label><div class="row"><input readonly value="${esc(s.xray_domain||s.domain||'Belum diatur di ENV')}"><button class="btn tonal" onclick="copyText(this.dataset.copy)" data-copy="${esc(s.xray_domain||s.domain||'')}">Salin</button></div></div>
+      <div class="field"><label>Domain SSH (SSH_DOMAIN)</label><div class="row"><input readonly value="${esc(s.ssh_domain||'Belum diatur di ENV')}"><button class="btn tonal" onclick="copyText(this.dataset.copy)" data-copy="${esc(s.ssh_domain||'')}">Salin</button></div></div>`)}`;
 }
-
 // -------------------- SSH account --------------------
 async function loadSSH(){
   try{
@@ -381,9 +343,10 @@ async function copyText(text){
 (async()=>{
   await loadInfo();
   await loadStats();
+  await loadTraffic();
   render();
-  setInterval(refreshDashboard,5000);    // live SSH + Xray online users (5s)
-  setInterval(loadStats,300000);         // full refresh (5min)
+  setInterval(loadStats,300000);         // server summary (5min)
+  setInterval(loadTraffic,5000);          // traffic snapshot (5s)
 })();
 </script></body></html>
 """
@@ -663,6 +626,138 @@ def get_online_xray_users():
         return []
 
 
+
+# ---------------------------------------------------------------------------
+# Container network traffic metrics
+# ---------------------------------------------------------------------------
+
+TRAFFIC_DATA_DIR = os.environ.get("TRAFFIC_DATA_DIR", "/data")
+TRAFFIC_STATE_FILE = os.path.join(TRAFFIC_DATA_DIR, "traffic_metrics.json")
+TRAFFIC_SAMPLE_SECONDS = max(2, int(os.environ.get("TRAFFIC_SAMPLE_SECONDS", "5")))
+TRAFFIC_LOCK = threading.Lock()
+TRAFFIC_STATE = {
+    "last_counters": {}, "total_rx": 0, "total_tx": 0,
+    "daily": {}, "monthly": {}, "updated_at": None,
+    "interfaces": [], "rate_rx": 0.0, "rate_tx": 0.0,
+}
+
+
+def read_network_counters():
+    """Aggregate RX/TX bytes for visible container interfaces except loopback."""
+    counters = {}
+    try:
+        with open("/proc/net/dev", encoding="utf-8") as f:
+            lines = f.readlines()[2:]
+        for line in lines:
+            if ":" not in line:
+                continue
+            iface, raw = line.split(":", 1)
+            iface = iface.strip()
+            fields = raw.split()
+            if iface and iface != "lo" and len(fields) >= 9:
+                counters[iface] = {"rx": int(fields[0]), "tx": int(fields[8])}
+    except (OSError, ValueError):
+        return {}
+    return counters
+
+
+def _traffic_save_locked():
+    try:
+        os.makedirs(TRAFFIC_DATA_DIR, exist_ok=True)
+        tmp = TRAFFIC_STATE_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(TRAFFIC_STATE, f)
+        os.replace(tmp, TRAFFIC_STATE_FILE)
+    except OSError as exc:
+        print(f"[traffic] state save failed: {exc}")
+
+
+def _traffic_load():
+    try:
+        with open(TRAFFIC_STATE_FILE, encoding="utf-8") as f:
+            saved = json.load(f)
+        if isinstance(saved, dict):
+            for key in TRAFFIC_STATE:
+                if key in saved:
+                    TRAFFIC_STATE[key] = saved[key]
+    except (OSError, ValueError):
+        pass
+
+
+def sample_network_traffic():
+    now = datetime.now().astimezone()
+    current = read_network_counters()
+    if not current:
+        return
+    rx_now = sum(v["rx"] for v in current.values())
+    tx_now = sum(v["tx"] for v in current.values())
+    day_key, month_key = now.strftime("%Y-%m-%d"), now.strftime("%Y-%m")
+
+    with TRAFFIC_LOCK:
+        previous = TRAFFIC_STATE.get("last_counters") or {}
+        prev_rx = sum(int(v.get("rx", 0)) for v in previous.values())
+        prev_tx = sum(int(v.get("tx", 0)) for v in previous.values())
+        delta_rx = rx_now - prev_rx if rx_now >= prev_rx else rx_now
+        delta_tx = tx_now - prev_tx if tx_now >= prev_tx else tx_now
+
+        elapsed = TRAFFIC_SAMPLE_SECONDS
+        stamp = TRAFFIC_STATE.get("updated_at")
+        if stamp:
+            try:
+                elapsed = max(0.5, (now - datetime.fromisoformat(stamp)).total_seconds())
+            except ValueError:
+                pass
+
+        TRAFFIC_STATE["total_rx"] = int(TRAFFIC_STATE.get("total_rx", 0)) + delta_rx
+        TRAFFIC_STATE["total_tx"] = int(TRAFFIC_STATE.get("total_tx", 0)) + delta_tx
+        daily = TRAFFIC_STATE.get("daily") or {}
+        if daily.get("date") != day_key:
+            daily = {"date": day_key, "rx": 0, "tx": 0}
+        daily["rx"] = int(daily.get("rx", 0)) + delta_rx
+        daily["tx"] = int(daily.get("tx", 0)) + delta_tx
+        TRAFFIC_STATE["daily"] = daily
+        monthly = TRAFFIC_STATE.get("monthly") or {}
+        if monthly.get("month") != month_key:
+            monthly = {"month": month_key, "rx": 0, "tx": 0}
+        monthly["rx"] = int(monthly.get("rx", 0)) + delta_rx
+        monthly["tx"] = int(monthly.get("tx", 0)) + delta_tx
+        TRAFFIC_STATE["monthly"] = monthly
+        TRAFFIC_STATE["rate_rx"] = delta_rx / elapsed
+        TRAFFIC_STATE["rate_tx"] = delta_tx / elapsed
+        TRAFFIC_STATE["last_counters"] = current
+        TRAFFIC_STATE["interfaces"] = sorted(current)
+        TRAFFIC_STATE["updated_at"] = now.isoformat(timespec="seconds")
+        _traffic_save_locked()
+
+
+def traffic_sampler_loop():
+    _traffic_load()
+    while True:
+        try:
+            sample_network_traffic()
+        except Exception as exc:
+            print(f"[traffic] sampling error: {exc}")
+        time.sleep(TRAFFIC_SAMPLE_SECONDS)
+
+
+def traffic_payload():
+    with TRAFFIC_LOCK:
+        d, m = TRAFFIC_STATE.get("daily") or {}, TRAFFIC_STATE.get("monthly") or {}
+        return {
+            "source": "container_network_interfaces",
+            "interfaces": list(TRAFFIC_STATE.get("interfaces") or []),
+            "download": {"rate_bytes_per_sec": round(float(TRAFFIC_STATE.get("rate_tx", 0)), 2)},
+            "upload": {"rate_bytes_per_sec": round(float(TRAFFIC_STATE.get("rate_rx", 0)), 2)},
+            "total": {"download_bytes": int(TRAFFIC_STATE.get("total_tx", 0)),
+                      "upload_bytes": int(TRAFFIC_STATE.get("total_rx", 0))},
+            "daily": {"date": d.get("date"), "download_bytes": int(d.get("tx", 0)),
+                      "upload_bytes": int(d.get("rx", 0))},
+            "monthly": {"month": m.get("month"), "download_bytes": int(m.get("tx", 0)),
+                        "upload_bytes": int(m.get("rx", 0))},
+            "updated_at": TRAFFIC_STATE.get("updated_at"),
+            "sample_interval_seconds": TRAFFIC_SAMPLE_SECONDS,
+        }
+
 def stats_payload(handler):
     try:
         with open("/proc/cpuinfo", encoding="utf-8") as f:
@@ -777,6 +872,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"status": "success", "accounts": load_xray_users()})
             elif path == "/api/stats":
                 self.send_json(stats_payload(self))
+            elif path == "/api/traffic":
+                self.send_json(traffic_payload())
             elif path == "/api/online":
                 self.send_json({"status": "success", "online_users": get_online_ssh_users()})
             elif path == "/__info":
@@ -862,4 +959,6 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     print(f"[app] Panel berjalan di http://{HOST}:{PORT}")
+    sampler = threading.Thread(target=traffic_sampler_loop, name="traffic-sampler", daemon=True)
+    sampler.start()
     ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
