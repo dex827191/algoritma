@@ -28,8 +28,8 @@ XRAY_USERS_FILE = "/app/users.json"
 XRAY_CONFIG_FILE = "/app/config.json"
 XRAY_DOMAIN = os.environ.get("XRAY_DOMAIN", "").strip()
 SSH_DOMAIN = os.environ.get("SSH_DOMAIN", "").strip()
-XRAY_PROXY_PORT = int(os.environ.get("XRAY_PUBLIC_PORT", "443"))
-SSH_PUBLIC_PORT = int(os.environ.get("SSH_PUBLIC_PORT", "443"))
+XRAY_PROXY_PORT = int(os.environ.get("XRAY_PROXY_PORT", "8080"))
+SSH_PUBLIC_PORT = int(os.environ.get("SSH_PORT", "8081"))
 UDPGW_PORT = int(os.environ.get("UDPGW_PORT", "7300"))
 ENABLE_BBR = os.environ.get("ENABLE_BBR", "false").lower()
 
@@ -822,7 +822,6 @@ def stats_payload(handler):
         "ui_port": PORT,
         "xray_proxy_port": XRAY_PROXY_PORT,
         "ssh_port": SSH_PUBLIC_PORT,
-        "ssh_ws_path": os.environ.get("WS_PATH", "/sshws"),
         "ws_proxy_cfg": {"sshPort": 22},
         "sys_settings": {"enable_bbr": ENABLE_BBR, "udpgw_port": UDPGW_PORT},
     }
@@ -885,7 +884,6 @@ class Handler(BaseHTTPRequestHandler):
                     "ui_port": PORT,
                     "xray_proxy_port": XRAY_PROXY_PORT,
                     "ssh_port": SSH_PUBLIC_PORT,
-        "ssh_ws_path": os.environ.get("WS_PATH", "/sshws"),
                     "udpgw_port": UDPGW_PORT,
                 })
             else:
