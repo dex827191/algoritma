@@ -184,9 +184,15 @@ async def handle_client(reader, writer):
             try:
                 decoded = base64.b64decode(key, validate=True)
             except Exception:
-                raise ValueError("Sec-WebSocket-Key tidak valid")
+                writer.write(b"HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n")
+                await writer.drain()
+                log.warning("%s rejected: Sec-WebSocket-Key bukan Base64 valid", peer)
+                return
             if len(decoded) != 16:
-                raise ValueError("Sec-WebSocket-Key harus 16 bytes")
+                writer.write(b"HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n")
+                await writer.drain()
+                log.warning("%s rejected: Sec-WebSocket-Key panjangnya bukan 16 bytes", peer)
+                return
 
             target_reader, ssh_writer = await asyncio.open_connection(TARGET_HOST, TARGET_PORT)
             response = (
