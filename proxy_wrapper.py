@@ -1,4 +1,3 @@
-#proxy_wrapper.py kusus untuk xray
 import asyncio
 import os
 import re
