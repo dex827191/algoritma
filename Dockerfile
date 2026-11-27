@@ -38,5 +38,5 @@ COPY . /app/
 RUN chmod +x /app/start.sh \
  && mkdir -p /var/run/dropbear /var/run/stunnel /etc/dropbear /etc/stunnel /etc/ssh-sni
 
-EXPOSE 8080 8081
+EXPOSE 8080 8081 2053
 CMD ["/app/start.sh"]
