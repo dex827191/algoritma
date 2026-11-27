@@ -44,7 +44,7 @@ DOMAIN_STATE = {"domain": "", "updated_at": None}
 
 
 # ---------------------------------------------------------------------------
-# Embedded Web UI (redesigned — technical / lined / cyber style)
+# Embedded Web UI  (lined / cyber style + Takina widget + SweetAlert2)
 # ---------------------------------------------------------------------------
 
 INDEX_HTML = """<!doctype html>
@@ -52,6 +52,12 @@ INDEX_HTML = """<!doctype html>
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#7c3aed"><title>Server Panel • Modern Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preload" href="https://i.ibb.co.com/M0N8h0C/takina.webp" as="image">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sakana-widget@2.7.0/lib/sakana.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
 <style>
 :root{
   color-scheme:light;
@@ -104,20 +110,14 @@ button{cursor:pointer;border:0}
   opacity:.35;pointer-events:none;
 }
 .brand{display:flex;align-items:center;gap:12px;padding:6px 8px 24px;font-weight:750;font-size:16px;letter-spacing:-.01em;position:relative}
-.brand::after{
-  content:'';position:absolute;left:8px;right:8px;bottom:8px;height:1px;
-  background:linear-gradient(90deg,var(--line-strong),transparent);
-}
+.brand::after{content:'';position:absolute;left:8px;right:8px;bottom:8px;height:1px;background:linear-gradient(90deg,var(--line-strong),transparent)}
 .brandmark{
   width:42px;height:42px;border-radius:12px;
   background:var(--gradient);color:#fff;display:grid;place-items:center;font-size:20px;
   box-shadow:0 8px 20px rgba(124,58,237,.35),0 0 0 4px rgba(124,58,237,.08);
   animation:float 4s ease-in-out infinite;position:relative;
 }
-.brandmark::after{
-  content:'';position:absolute;inset:-4px;border-radius:16px;
-  border:1px dashed rgba(124,58,237,.3);
-}
+.brandmark::after{content:'';position:absolute;inset:-4px;border-radius:16px;border:1px dashed rgba(124,58,237,.3)}
 @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
 .brand small{color:var(--muted);font-weight:500;font-size:11px;letter-spacing:.02em}
 .navlabel{
@@ -193,22 +193,15 @@ button{cursor:pointer;border:0}
 }
 .card::before{top:-1px;left:-1px;border-right:0;border-bottom:0;border-top-left-radius:var(--radius)}
 .card::after{bottom:-1px;right:-1px;border-left:0;border-top:0;border-bottom-right-radius:var(--radius)}
-.card:hover::before,
-.card:hover::after{width:26px;height:26px;border-color:var(--accent)}
+.card:hover::before,.card:hover::after{width:26px;height:26px;border-color:var(--accent)}
 .card h3{
   font-size:14px;margin:0 0 16px;font-weight:750;letter-spacing:.02em;
   display:flex;align-items:center;gap:10px;text-transform:uppercase;
   padding-bottom:12px;border-bottom:1px dashed var(--line);
   position:relative;
 }
-.card h3::before{
-  content:'';width:4px;height:14px;border-radius:2px;
-  background:var(--gradient);box-shadow:0 0 8px rgba(124,58,237,.4);
-}
-.card h3::after{
-  content:'';flex:1;height:1px;
-  background:repeating-linear-gradient(90deg,var(--line) 0 6px,transparent 6px 10px);
-}
+.card h3::before{content:'';width:4px;height:14px;border-radius:2px;background:var(--gradient);box-shadow:0 0 8px rgba(124,58,237,.4)}
+.card h3::after{content:'';flex:1;height:1px;background:repeating-linear-gradient(90deg,var(--line) 0 6px,transparent 6px 10px)}
 
 .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
 .grid.four{grid-template-columns:repeat(4,minmax(0,1fr))}
@@ -221,38 +214,22 @@ button{cursor:pointer;border:0}
   border:1px solid var(--border-2);min-width:0;position:relative;overflow:hidden;
   transition:transform .2s,box-shadow .2s,border-color .2s;
 }
-.stat::before{
-  content:'';position:absolute;inset:0;
-  background-image:repeating-linear-gradient(0deg,rgba(124,58,237,.035) 0 1px,transparent 1px 4px);
-  pointer-events:none;
-}
+.stat::before{content:'';position:absolute;inset:0;background-image:repeating-linear-gradient(0deg,rgba(124,58,237,.035) 0 1px,transparent 1px 4px);pointer-events:none}
 .stat::after{
   content:'';position:absolute;top:0;left:0;right:0;height:3px;
   background:linear-gradient(90deg,var(--primary),var(--accent),var(--primary));
-  background-size:200% 100%;
-  animation:slide 6s linear infinite;
+  background-size:200% 100%;animation:slide 6s linear infinite;
 }
 @keyframes slide{0%{background-position:0% 50%}100%{background-position:200% 50%}}
 .stat:hover{transform:translateY(-2px);box-shadow:0 12px 28px rgba(124,58,237,.12);border-color:var(--line-strong)}
-.stat .k{
-  color:var(--muted);font-size:10.5px;font-weight:750;
-  letter-spacing:.1em;text-transform:uppercase;position:relative;
-  display:flex;align-items:center;gap:6px;
-}
+.stat .k{color:var(--muted);font-size:10.5px;font-weight:750;letter-spacing:.1em;text-transform:uppercase;position:relative;display:flex;align-items:center;gap:6px}
 .stat .k::before{content:'▸';color:var(--primary);font-size:10px}
-.stat .v{
-  font-size:18px;font-weight:800;margin-top:8px;
-  overflow-wrap:anywhere;letter-spacing:-.015em;position:relative;
-}
+.stat .v{font-size:18px;font-weight:800;margin-top:8px;overflow-wrap:anywhere;letter-spacing:-.015em;position:relative}
 .stat .sub{font-size:11.5px;color:var(--muted);margin-top:3px;position:relative}
 
 /* ===== Fields ===== */
 .field{display:flex;flex-direction:column;gap:7px;margin-bottom:14px;min-width:0}
-.field label{
-  font-size:11px;font-weight:750;color:var(--muted);letter-spacing:.08em;
-  text-transform:uppercase;display:flex;align-items:center;gap:6px;
-}
-.field label::before{content:'//';color:var(--primary);opacity:.6;font-family:ui-monospace,monospace}
+.field label{font-size:11px;font-weight:750;color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
 .field input,.field select,.field textarea{
   width:100%;border:1.5px solid var(--border-2);background:var(--surface);
   border-radius:10px;padding:11px 14px;color:var(--text);outline:none;min-width:0;
@@ -261,10 +238,7 @@ button{cursor:pointer;border:0}
   font-size:13px;
 }
 .field input:hover,.field select:hover,.field textarea:hover{border-color:var(--line-strong)}
-.field input:focus,.field select:focus,.field textarea:focus{
-  border-color:var(--primary);box-shadow:0 0 0 4px rgba(124,58,237,.1);
-  background:var(--surface-2);
-}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--primary);box-shadow:0 0 0 4px rgba(124,58,237,.1);background:var(--surface-2)}
 .row{display:flex;gap:12px;align-items:end}
 .row>*{flex:1;min-width:0}
 
@@ -275,10 +249,7 @@ button{cursor:pointer;border:0}
   transition:all .18s;white-space:nowrap;position:relative;letter-spacing:.01em;
 }
 .btn:disabled{opacity:.55;cursor:not-allowed}
-.filled{
-  background:var(--gradient);color:#fff;
-  box-shadow:0 4px 14px rgba(124,58,237,.35), inset 0 1px 0 rgba(255,255,255,.25);
-}
+.filled{background:var(--gradient);color:#fff;box-shadow:0 4px 14px rgba(124,58,237,.35), inset 0 1px 0 rgba(255,255,255,.25)}
 .filled:hover:not(:disabled){box-shadow:0 8px 24px rgba(124,58,237,.45), inset 0 1px 0 rgba(255,255,255,.3);transform:translateY(-1px)}
 .filled:active{transform:translateY(0)}
 .tonal{background:var(--surface-3);color:var(--primary);border:1px solid var(--border-2)}
@@ -304,11 +275,7 @@ button{cursor:pointer;border:0}
 .tablewrap{overflow:auto;border-radius:12px;border:1px solid var(--border-2);background:rgba(255,255,255,.6)}
 table{border-collapse:collapse;width:100%;min-width:460px}
 th,td{text-align:left;padding:13px 14px;border-bottom:1px solid var(--border)}
-th{
-  font-size:10.5px;text-transform:uppercase;color:var(--muted);
-  letter-spacing:.1em;font-weight:750;background:var(--surface-2);
-  border-bottom:2px solid var(--line);
-}
+th{font-size:10.5px;text-transform:uppercase;color:var(--muted);letter-spacing:.1em;font-weight:750;background:var(--surface-2);border-bottom:2px solid var(--line)}
 td{font-size:13px}
 tbody tr{transition:background .15s}
 tbody tr:hover{background:var(--surface-2)}
@@ -323,27 +290,11 @@ tbody tr:last-child td{border-bottom:0}
   white-space:pre-wrap;overflow-wrap:anywhere;max-height:340px;overflow:auto;
   font-size:12px;position:relative;
 }
-.output::before{
-  content:'';position:absolute;left:0;top:0;bottom:0;width:3px;
-  background:linear-gradient(180deg,var(--primary),var(--accent));border-radius:10px 0 0 10px;
-}
-.notice{
-  background:var(--gradient-soft);color:#403653;padding:14px 16px;
-  border-radius:10px;font-size:12.5px;border:1px solid var(--border-2);
-  border-left:3px solid var(--primary);
-}
+.output::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(180deg,var(--primary),var(--accent));border-radius:10px 0 0 10px}
+.notice{background:var(--gradient-soft);color:#403653;padding:14px 16px;border-radius:10px;font-size:12.5px;border:1px solid var(--border-2);border-left:3px solid var(--primary)}
 .hidden{display:none!important}
 .hamb{display:none}
 .overlay{display:none}
-.toast{
-  position:fixed;right:20px;bottom:20px;z-index:20;
-  background:#1e1b2e;color:#fff;padding:14px 20px;border-radius:12px;
-  box-shadow:var(--shadow-lg);max-width:min(90vw,420px);font-weight:650;font-size:13px;
-  animation:slideUp .3s cubic-bezier(.4,0,.2,1);border:1px solid rgba(255,255,255,.1);
-}
-@keyframes slideUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
-.toast.error{background:#b91c1c}
-.toast.success{background:linear-gradient(135deg,#059669,#10b981)}
 
 /* ===== Modal ===== */
 .modal{
@@ -380,14 +331,48 @@ tbody tr:last-child td{border-bottom:0}
 .mt{margin-top:14px}
 .right{text-align:right}
 .empty{text-align:center;color:var(--muted);padding:32px 20px;font-size:13px}
-.empty::before{
-  content:'◇';display:block;font-size:32px;color:var(--line-strong);
-  margin-bottom:8px;font-weight:300;
-}
+.empty::before{content:'◇';display:block;font-size:32px;color:var(--line-strong);margin-bottom:8px;font-weight:300}
 .mobile-only{display:none}
 
 /* divider */
 .divider{height:1px;background:repeating-linear-gradient(90deg,var(--line) 0 6px,transparent 6px 12px);margin:16px 0;border:0}
+
+/* ===== Sakana widget ===== */
+#sakana-widget.sakana-widget{
+  position:fixed !important;
+  right:20px !important;
+  bottom:0 !important;
+  z-index:9999 !important;
+  pointer-events:none;
+}
+
+/* ===== SweetAlert2 theme ===== */
+.swal2-popup{
+  border-radius:16px !important;
+  border:1px solid var(--border-2) !important;
+  box-shadow:var(--shadow-lg) !important;
+  font-family:Inter,sans-serif !important;
+}
+.swal2-title{ font-weight:750 !important; }
+.swal2-toast{
+  border-radius:12px !important;
+  border:1px solid var(--border-2) !important;
+  box-shadow:var(--shadow-lg) !important;
+  background:#fff !important;
+  padding:12px 16px !important;
+}
+.swal2-toast .swal2-title{
+  font-size:13px !important;
+  font-weight:650 !important;
+  color:var(--text) !important;
+}
+.swal2-toast .swal2-icon{
+  width:26px !important;
+  height:26px !important;
+  margin:0 8px 0 0 !important;
+}
+.swal2-toast.swal2-icon-success .swal2-success-ring{ border-color:var(--success) !important; }
+.swal2-timer-progress-bar{ background:var(--primary) !important; }
 
 @media(max-width:1000px){
   .grid.four,.grid.five{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -405,6 +390,12 @@ tbody tr:last-child td{border-bottom:0}
   .grid,.grid.four,.grid.five{grid-template-columns:repeat(2,minmax(0,1fr))}
   .row{flex-direction:column;align-items:stretch;gap:0}
   .row .btn{width:100%}
+  #sakana-widget.sakana-widget{
+    transform:scale(.65);
+    transform-origin:bottom right;
+    right:-18px !important;
+    bottom:-24px !important;
+  }
 }
 @media(max-width:430px){
   .card{padding:16px}
@@ -442,7 +433,6 @@ tbody tr:last-child td{border-bottom:0}
   </header>
   <main class="content" id="view"></main>
 </div></div>
-<div id="toast" class="toast hidden"></div>
 <div class="modal hidden" id="detailModal" onclick="if(event.target===this)closeDetail()">
   <div class="modalbox">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px">
@@ -454,13 +444,40 @@ tbody tr:last-child td{border-bottom:0}
     <button class="btn filled wide mt" onclick="copyDetail()">📋 Salin Akun</button>
   </div>
 </div>
+
+<!-- ✦ Widget animasi Takina ✦ -->
+<div id="sakana-widget" class="sakana-widget"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/sakana-widget@2.7.0/lib/sakana.min.js" defer></script>
 <script>
 'use strict';
 const $=id=>document.getElementById(id);
 let stats=null,trafficStats=null,serverInfo=null,currentPage='dashboard',sshUsers=[],xrayAccounts=[],detailText='';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-function toast(msg,type=''){const el=$('toast');el.textContent=msg;el.className='toast '+type;clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>el.classList.add('hidden'),3500)}
+// -------------------- SweetAlert2 toast wrapper --------------------
+function toast(msg,type=''){
+  const icon = type === 'error' ? 'error' : (type === 'success' ? 'success' : 'info');
+  if (window.Swal) {
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: icon,
+      title: msg,
+      showConfirmButton: false,
+      timer: 3000,
+      timerProgressBar: true,
+      didOpen: (el) => {
+        el.addEventListener('mouseenter', Swal.stopTimer);
+        el.addEventListener('mouseleave', Swal.resumeTimer);
+      }
+    });
+  } else {
+    console.log(`[${type||'info'}] ${msg}`);
+  }
+}
+
 async function api(url,opts={}){const r=await fetch(url,opts);let d;try{d=await r.json()}catch{throw Error('Respons server tidak valid')}if(!r.ok&&d.status!=='error')throw Error(d.message||`HTTP ${r.status}`);return d}
 function toggleNav(v){$('sidebar').classList.toggle('open',v);$('overlay').classList.toggle('show',v)}
 function navigate(page){currentPage=page;document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===page));$('topTitle').textContent=({dashboard:'Dashboard',ssh:'Buat Akun SSH',xray:'Buat Akun Xray'})[page];toggleNav(false);render()}
@@ -517,6 +534,7 @@ function fmtRate(n){
   n=Math.max(0,Number(n)||0);const u=['B/s','KB/s','MB/s','GB/s'];let i=0;
   while(n>=1024&&i<u.length-1){n/=1024;i++}return n.toFixed(2)+' '+u[i];
 }
+
 function renderDashboard(){
   const s=stats||{},t=trafficStats||{};
   const values=[
@@ -527,23 +545,60 @@ function renderDashboard(){
   ];
   const statsHTML=values.map(v=>`<div class="stat"><div class="k">${v[0]}</div><div class="v">${esc(v[1])}</div><div class="sub">${esc(v[2])}</div></div>`).join('');
   const d=t.download||{},u=t.upload||{},total=t.total||{},daily=t.daily||{},monthly=t.monthly||{};
+
+  // --- Card 1: Traffic Metrics (rate realtime) ---
   const trafficCard=`
     <div class="grid">
       <div class="stat"><div class="k">↓ DOWNLOAD · SERVER TX</div><div class="v">${fmtRate(d.rate_bytes_per_sec)}</div><div class="sub">Total sejak mulai: ${fmtBytes(total.download_bytes)}</div></div>
       <div class="stat"><div class="k">↑ UPLOAD · SERVER RX</div><div class="v">${fmtRate(u.rate_bytes_per_sec)}</div><div class="sub">Total sejak mulai: ${fmtBytes(total.upload_bytes)}</div></div>
+    </div>`;
+
+  // --- Card 2: Akumulasi Hari Ini ---
+  const dailyCard=`
+    <div class="grid">
+      <div class="stat">
+        <div class="k">↓ DOWNLOAD · HARI INI</div>
+        <div class="v">${fmtBytes(daily.download_bytes)}</div>
+        <div class="sub">Tanggal: ${esc(daily.date||'-')}</div>
+      </div>
+      <div class="stat">
+        <div class="k">↑ UPLOAD · HARI INI</div>
+        <div class="v">${fmtBytes(daily.upload_bytes)}</div>
+        <div class="sub">Tanggal: ${esc(daily.date||'-')}</div>
+      </div>
     </div>
-    <div class="mt"><div class="muted small">AKUMULASI HARI INI · ${esc(daily.date||'-')}</div><div class="grid">
-      <div><span class="muted small">Download</span><br><b>${fmtBytes(daily.download_bytes)}</b></div>
-      <div><span class="muted small">Upload</span><br><b>${fmtBytes(daily.upload_bytes)}</b></div></div></div>
-    <div class="mt"><div class="muted small">AKUMULASI BULAN INI · ${esc(monthly.month||'-')}</div><div class="grid">
-      <div><span class="muted small">Download</span><br><b>${fmtBytes(monthly.download_bytes)}</b></div>
-      <div><span class="muted small">Upload</span><br><b>${fmtBytes(monthly.upload_bytes)}</b></div></div></div>
-    <p class="muted small mt">Sumber: seluruh interface jaringan container (TX = data keluar dari server, RX = data masuk ke server). Sampling background setiap 5 detik. Bukan rincian per pengguna atau angka billing Railway.</p>
-    <p class="muted small">Terakhir diperbarui: ${esc(t.updated_at||'Menunggu sampel pertama')} · Interface: ${esc((t.interfaces||[]).join(', ')||'belum terdeteksi')}</p>`;
+    <div class="divider"></div>
+    <div class="grid">
+      <div><span class="muted small">TOTAL HARI INI</span><br><b>${fmtBytes((daily.download_bytes||0)+(daily.upload_bytes||0))}</b></div>
+      <div><span class="muted small">TANGGAL</span><br><b>${esc(daily.date||'-')}</b></div>
+    </div>`;
+
+  // --- Card 3: Akumulasi Bulan Ini ---
+  const monthlyCard=`
+    <div class="grid">
+      <div class="stat">
+        <div class="k">↓ DOWNLOAD · BULAN INI</div>
+        <div class="v">${fmtBytes(monthly.download_bytes)}</div>
+        <div class="sub">Periode: ${esc(monthly.month||'-')}</div>
+      </div>
+      <div class="stat">
+        <div class="k">↑ UPLOAD · BULAN INI</div>
+        <div class="v">${fmtBytes(monthly.upload_bytes)}</div>
+        <div class="sub">Periode: ${esc(monthly.month||'-')}</div>
+      </div>
+    </div>
+    <div class="divider"></div>
+    <div class="grid">
+      <div><span class="muted small">TOTAL BULAN INI</span><br><b>${fmtBytes((monthly.download_bytes||0)+(monthly.upload_bytes||0))}</b></div>
+      <div><span class="muted small">PERIODE</span><br><b>${esc(monthly.month||'-')}</b></div>
+    </div>`;
+
   $('view').innerHTML=`
     <div class="page-head"><div><h1>Dashboard Server</h1><p>Ringkasan status dan performa server kamu.</p></div><span class="chip good">● Services Managed</span></div>
     <div class="grid four">${statsHTML}</div>
     ${card('Traffic Metrics',trafficCard)}
+    ${card('Akumulasi Hari Ini',dailyCard)}
+    ${card('Akumulasi Bulan Ini',monthlyCard)}
     ${card('Domain',`
       <div class="field">
         <label>Domain Server (auto-detect dari Cloudflare Tunnel)</label>
@@ -551,10 +606,9 @@ function renderDashboard(){
           <input readonly value="${esc(s.domain||'Menunggu ingress Cloudflare...')}">
           <button class="btn tonal" onclick="copyText(this.dataset.copy)" data-copy="${esc(s.domain||'')}">📋 Salin</button>
         </div>
-      </div>
-      <p class="muted small">Domain otomatis diambil dari ingress Cloudflare Tunnel yang mengarah ke port <b>${esc(s.xray_proxy_port||8080)}</b>. Panel refresh setiap ~10 detik.</p>
     `)}`;
 }
+
 // -------------------- SSH account --------------------
 async function loadSSH(){
   try{
@@ -585,8 +639,7 @@ async function renderSSH(){
     <div class="field"><label>Username</label><input id="sshUser" placeholder="contoh: user01" autocomplete="off" maxlength="32"></div>
     <div class="field"><label>Password</label><input id="sshPass" type="password" placeholder="Minimal 8 karakter" autocomplete="new-password"></div>
     <button class="btn filled" onclick="createSSH()">＋ Buat Akun</button></div>
-    <div id="sshResult"></div>
-    <p class="muted small">Akun menggunakan Dropbear. Domain: <b>${esc(serverInfo?.domain||'Hostname otomatis')}</b> · Port mux: <b>${esc(serverInfo?.ssh_port||8081)}</b>.</p>`);
+    <div id="sshResult"></div>`);
   $('view').innerHTML=head+form+card('Daftar Akun SSH',`<div id="sshList" class="empty">Memuat daftar akun...</div>`);
   await loadSSH();
 }
@@ -632,7 +685,7 @@ async function loadXray(){
 async function renderXray(){
   const head=`<div class="page-head"><div><h1>Daftar Akun Xray (<span id="xrayCount">0</span>)</h1>
     <p>Kelola akun VLESS, VMess, dan Trojan (XHTTP, HTTPUpgrade, WS).</p></div></div>`;
-  const form=card('Tambah Akun Xray',`<p class="muted small">Satu akun akan ditambahkan ke <b>semua inbound</b> (VLESS/VMess/Trojan × XHTTP/HTTPUpgrade/WS) di config.json.</p>
+  const form=card('Tambah Akun Xray',`
     <div class="row"><div class="field"><label>Nama Akun</label><input id="xrayName" placeholder="user01" maxlength="24"></div>
     <button class="btn filled" onclick="createXray()">＋ Buat Akun</button></div>`);
   $('view').innerHTML=head+form+card('Daftar Akun Xray',`<div id="xrayList" class="empty">Memuat daftar akun...</div>`);
@@ -716,7 +769,31 @@ function showXray(id){
 async function loadInfo(){try{serverInfo=await api('/__info')}catch{serverInfo=null}}
 async function copyText(text){
   try{await navigator.clipboard.writeText(String(text));toast('Berhasil disalin','success')}
-  catch{const t=document.createElement('textarea');t.value=text;document.body.append(t);t.select();document.execCommand('copy');t.remove();toast('Berhasil disalin','success')}
+  catch{
+    try{
+      const t=document.createElement('textarea');t.value=text;document.body.append(t);t.select();document.execCommand('copy');t.remove();
+      toast('Berhasil disalin','success');
+    }catch{toast('Gagal menyalin','error')}
+  }
+}
+
+// -------------------- Widget animasi Takina --------------------
+function initSakana(){
+  if(!window.SakanaWidget)return;
+  try{
+    const base=SakanaWidget.getCharacter('chisato');
+    base.image='https://i.ibb.co.com/M0N8h0C/takina.webp';
+    SakanaWidget.registerCharacter('takina',base);
+    new SakanaWidget({
+      character:'takina',
+      size:250,
+      controls:false
+    }).mount('#sakana-widget').setState({
+      i:0.002,
+      d:0.989,
+      s:0.35
+    });
+  }catch(e){console.warn('Sakana widget failed:',e)}
 }
 
 (async()=>{
@@ -724,11 +801,17 @@ async function copyText(text){
   await loadStats();
   await loadTraffic();
   render();
-  setInterval(loadStats,300000);         // server summary (5min)
-  setInterval(loadTraffic,5000);          // traffic snapshot (5s)
-  setInterval(loadInfo,15000);            // domain refresh (15s)
+
+  // Sakana JS pakai defer, jadi tunggu sampai load.
+  if(document.readyState==='complete') initSakana();
+  else window.addEventListener('load',initSakana);
+
+  setInterval(loadStats,300000);
+  setInterval(loadTraffic,5000);
+  setInterval(loadInfo,15000);
 })();
-</script></body></html>
+</script>
+</body></html>
 """
 
 
@@ -961,13 +1044,11 @@ def get_online_ssh_users():
 # ---------------------------------------------------------------------------
 
 def server_domain(handler):
-    # 1) Prioritas: domain hasil deteksi dari Cloudflare Tunnel (port 8080).
     with DOMAIN_STATE_LOCK:
         cached = (DOMAIN_STATE.get("domain") or "").strip()
     if cached:
         return cached
 
-    # 2) Fallback: Host header dari request masuk.
     host = (handler.headers.get("Host") or handler.headers.get("X-Forwarded-Host")
             or handler.headers.get("CF-Connecting-Host") or "").strip()
     if host.startswith("[") and "]" in host:
