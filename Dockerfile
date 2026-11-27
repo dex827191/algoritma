@@ -10,13 +10,7 @@ RUN curl -fsSL https://github.com/ambrop72/badvpn/archive/refs/tags/1.999.130.ta
  && cmake .. -DBUILD_NOTHING_BY_DEFAULT=1 -DBUILD_UDPGW=1 \
  && make -j"$(nproc)" badvpn-udpgw
 
-# ---------- Stage 2: build Go stream-worker (opsional) ----------
-FROM golang:1.21-bookworm AS go-builder
-WORKDIR /src
-COPY ./worker/ /src/
-RUN cd /src && go build -o /out/worker . 2>/dev/null || (mkdir -p /out && echo 'package main; import "fmt"; func main(){fmt.Println("noop")}' > main.go && go build -o /out/worker .)
-
-# ---------- Stage 3: runtime ----------
+# ---------- Stage 2: runtime ----------
 FROM debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /app
@@ -34,13 +28,12 @@ RUN curl -fsSL -o /usr/local/bin/cloudflared \
     https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
     && chmod +x /usr/local/bin/cloudflared
 
+# badvpn-udpgw → net-worker (alias kamu)
 COPY --from=badvpn-builder /src/badvpn-1.999.130/build/udpgw/badvpn-udpgw /usr/local/bin/net-worker
-COPY --from=go-builder    /out/worker                                      /usr/local/bin/stream-worker
 
 COPY . /app/
-RUN chmod +x /app/start.sh /usr/local/bin/net-worker /usr/local/bin/stream-worker \
-    && mkdir -p /var/run/dropbear /var/run/stunnel /etc/dropbear /etc/stunnel /etc/ssh-sni /run \
-    && rm -f /usr/sbin/dropbear
+RUN chmod +x /app/start.sh /usr/local/bin/net-worker \
+    && mkdir -p /var/run/dropbear /var/run/stunnel /etc/dropbear /etc/stunnel /etc/ssh-sni /run
 
 EXPOSE 2053 8080 8081 7300
 EXPOSE 7300/udp
