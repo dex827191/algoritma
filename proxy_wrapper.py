@@ -65,6 +65,7 @@ async def handle_client(client_reader, client_writer):
             path = parts[1] if len(parts) >= 2 else "/"
 
             if any(path.startswith(p) for p in XRAY_PATHS):
+                # ... (tetap sama seperti kode aslinya: WebSocket ke nginx) ...
                 host_header = next((l for l in lines if l.lower().startswith("host:")), "Host: localhost")
                 ws_headers = [l for l in lines[1:] if l.lower().startswith("sec-websocket-")]
                 if not any(h.lower().startswith("sec-websocket-key:") for h in ws_headers):
@@ -101,22 +102,52 @@ async def handle_client(client_reader, client_writer):
                     pipe_up_to_client(up_reader, client_writer),
                 )
                 return
-            else:
-                # UI/API requests share the Xray hostname and are served by nginx -> app.py:2053.
-                up_reader, up_writer = await asyncio.open_connection(NGINX_HOST, NGINX_PORT)
-                up_writer.write(raw_head)
-                await up_writer.drain()
+
+            # ===== DECOY: apapun selain path Xray -> 200 OK kosong =====
+            content_length = 0
+            wants_close = False
+            is_chunked = False
+            for l in lines:
+                ll = l.lower()
+                if ll.startswith("content-length:"):
+                    try:
+                        content_length = int(l.split(":", 1)[1].strip())
+                    except ValueError:
+                        content_length = 0
+                elif ll.startswith("transfer-encoding:") and "chunked" in ll:
+                    is_chunked = True
+                elif ll.startswith("connection:") and "close" in ll:
+                    wants_close = True
+
+            # Buang body request (agar keep-alive tidak desync)
+            if is_chunked:
+                # Kasus chunked: terlalu ribet, langsung tutup saja
+                wants_close = True
+            elif content_length > 0:
+                body_read = 0
                 if client_reader._buffer:
                     buffered = bytes(client_reader._buffer)
                     client_reader._buffer.clear()
-                    if buffered:
-                        up_writer.write(buffered)
-                        await up_writer.drain()
-                await asyncio.gather(
-                    pipe_client_to_up(client_reader, up_writer, strip_first_http_header=False),
-                    pipe_up_to_client(up_reader, client_writer),
+                    body_read += len(buffered)
+                while body_read < content_length:
+                    chunk = await client_reader.read(min(8192, content_length - body_read))
+                    if not chunk:
+                        break
+                    body_read += len(chunk)
+
+            if wants_close or first_line.endswith("HTTP/1.0"):
+                client_writer.write(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
                 )
-                return
+                await client_writer.drain()
+                break
+
+            client_writer.write(
+                b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: keep-alive\r\n\r\n"
+            )
+            await client_writer.drain()
+            # lanjut loop -> baca request berikutnya di koneksi yang sama
+
     except Exception:
         try:
             client_writer.close()
