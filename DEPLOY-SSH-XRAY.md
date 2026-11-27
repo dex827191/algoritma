@@ -1,7 +1,7 @@
 # SSH + Xray + UI deployment
 
 ## Local listeners (defaults)
-- `app.py` serves the embedded HTML UI/API on `APP_PORT=2053`.
+- `app.py` serves the embedded HTML UI/API on `APP_PORT=8080`.
 - `proxy_wrapper.py` is **Xray ingress only** on `XRAY_PROXY_PORT=8080`; Xray paths go through nginx and UI/API requests are forwarded to nginx -> app.py.
 - `mux.py` is **SSH only** on `SSH_PORT=8081` (the value is read from ENV).
 - `ws-proxy.py` is the SSH WebSocket backend on `127.0.0.1:8880`, forwarding to Dropbear `127.0.0.1:22`.
