@@ -21,8 +21,13 @@ else
   echo "[!] BADVPN binary not found at ${NET_BIN}; SSH UDPGW skipped."
 fi
 
-# Best-effort kernel tuning. Containers often lack permission to change sysctls.
-echo "[*] Applying best-effort kernel tweaks..."
+# KUNCI UTAMA ANTI-SUNEK: best-effort process/socket limits (per process shell).
+# Limits may be constrained by the container runtime.
+ulimit -n 65535 2>/dev/null || true
+ulimit -s unlimited 2>/dev/null || true
+
+# ULTRA TURBO KERNEL TWEAKS & BBR SWITCH (best-effort; host/container permissions apply).
+echo "[*] Optimizing socket queues and TIME_WAIT cleanup..."
 sysctl -w net.ipv4.tcp_tw_reuse=1 2>/dev/null || true
 sysctl -w net.ipv4.tcp_fin_timeout=10 2>/dev/null || true
 sysctl -w net.core.default_qdisc=fq 2>/dev/null || true
