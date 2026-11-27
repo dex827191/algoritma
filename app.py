@@ -26,8 +26,8 @@ SSH_DATA_DIR = os.environ.get("SSH_DATA_DIR", "/etc/ssh-sni")
 SSH_USERS_FILE = os.path.join(SSH_DATA_DIR, "users.json")
 XRAY_USERS_FILE = "/app/users.json"
 XRAY_CONFIG_FILE = "/app/config.json"
-XRAY_DOMAIN = os.environ.get("XRAY_DOMAIN", "").strip()
-SSH_DOMAIN = os.environ.get("SSH_DOMAIN", "").strip()
+DOMAIN = os.environ.get("DOMAIN", "").strip()
+
 XRAY_PROXY_PORT = int(os.environ.get("XRAY_PROXY_PORT", "8080"))
 SSH_PUBLIC_PORT = int(os.environ.get("SSH_PORT", "8081"))
 UDPGW_PORT = int(os.environ.get("UDPGW_PORT", "7300"))
@@ -37,32 +37,269 @@ XRAY_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,23}")
 
 
 # ---------------------------------------------------------------------------
-# Embedded Web UI
+# Embedded Web UI (redesigned — gradient / glassmorphism)
 # ---------------------------------------------------------------------------
 
 INDEX_HTML = """<!doctype html>
 <html lang="id">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#6750a4"><title>Server Panel • Material 3</title>
+<meta name="theme-color" content="#7c3aed"><title>Server Panel • Modern Console</title>
 <style>
-:root{color-scheme:light;--primary:#6750a4;--on-primary:#fff;--primary-container:#eaddff;--on-primary-container:#21005d;--secondary:#625b71;--surface:#fffbfe;--surface-low:#f7f2fa;--surface-high:#ece6f0;--surface-highest:#e6e0e9;--outline:#79747e;--outline-soft:#cac4d0;--text:#1d1b20;--muted:#49454f;--success:#386a20;--success-bg:#d7f5c4;--error:#b3261e;--radius:18px;--shadow:0 1px 3px #0001,0 8px 24px #0000000a}
-*{box-sizing:border-box}body{margin:0;background:var(--surface-low);color:var(--text);font:14px/1.5 Inter,Roboto,"Segoe UI",sans-serif}button,input,select,textarea{font:inherit}button{cursor:pointer}.app{min-height:100vh}.sidebar{position:fixed;inset:0 auto 0 0;width:264px;background:var(--surface);border-right:1px solid var(--outline-soft);padding:18px 14px;display:flex;flex-direction:column;z-index:5;transition:transform .25s}.brand{display:flex;align-items:center;gap:12px;padding:8px 10px 22px;font-weight:750;font-size:17px}.brandmark{width:40px;height:40px;border-radius:14px;background:var(--primary);color:white;display:grid;place-items:center;font-size:21px}.navlabel{font-size:11px;letter-spacing:1.1px;color:var(--muted);font-weight:700;padding:10px 14px}.nav button{width:100%;border:0;background:transparent;color:var(--muted);padding:12px 16px;border-radius:30px;text-align:left;display:flex;gap:14px;align-items:center;margin:3px 0;font-weight:600}.nav button.active{background:var(--primary-container);color:var(--on-primary-container)}.nav button:hover{background:var(--surface-high)}.nav .ico{width:22px;text-align:center;font-size:18px}.sidefoot{margin-top:auto;border-top:1px solid var(--outline-soft);padding:16px 8px 4px}.status{display:inline-flex;align-items:center;gap:8px;border-radius:30px;padding:7px 12px;background:var(--surface-high);font-size:12px;font-weight:650}.dot{width:8px;height:8px;background:#2e7d32;border-radius:50%;box-shadow:0 0 0 4px #2e7d3218}.main{margin-left:264px;min-width:0}.topbar{height:72px;display:flex;align-items:center;justify-content:space-between;padding:0 30px;background:#fffbfeeF;border-bottom:1px solid #e6e0e9;position:sticky;top:0;z-index:3;backdrop-filter:blur(12px)}.top-left{display:flex;align-items:center;gap:14px}.topbar h2{font-size:16px;margin:0}.top-actions{display:flex;gap:10px;align-items:center}.content{max-width:1100px;margin:auto;padding:28px 30px 60px}.page-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:22px;gap:12px}.page-head h1{font-size:26px;letter-spacing:-.5px;margin:0 0 4px}.page-head p{color:var(--muted);margin:0}.card{background:var(--surface);border:1px solid #e7e1e9;border-radius:var(--radius);padding:20px;margin-bottom:16px;box-shadow:var(--shadow)}.card h3{font-size:16px;margin:0 0 15px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.grid.five{grid-template-columns:repeat(5,minmax(0,1fr))}.stat{padding:17px;border-radius:16px;background:var(--surface);border:1px solid #e7e1e9;min-width:0}.stat .k{color:var(--muted);font-size:11px;font-weight:750;letter-spacing:.7px;text-transform:uppercase}.stat .v{font-size:17px;font-weight:750;margin-top:8px;overflow-wrap:anywhere}.stat .sub{font-size:12px;color:var(--muted);margin-top:3px}.field{display:flex;flex-direction:column;gap:7px;margin-bottom:14px;min-width:0}.field label{font-size:12px;font-weight:700;color:var(--muted)}.field input,.field select,.field textarea{width:100%;border:1px solid var(--outline);background:var(--surface);border-radius:10px;padding:12px 13px;color:var(--text);outline:none;min-width:0}.field input:focus,.field select:focus,.field textarea:focus{border:2px solid var(--primary);padding:11px 12px}.row{display:flex;gap:12px;align-items:end}.row>*{flex:1;min-width:0}.btn{border:0;border-radius:28px;padding:11px 18px;min-height:42px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;gap:8px;transition:.15s}.btn:disabled{opacity:.55;cursor:not-allowed}.filled{background:var(--primary);color:white}.filled:hover{box-shadow:0 2px 8px #6750a455}.tonal{background:var(--primary-container);color:var(--on-primary-container)}.outlined{background:transparent;color:var(--primary);border:1px solid var(--outline-soft)}.danger{background:#f9dedc;color:#410e0b}.textbtn{background:transparent;color:var(--primary);padding:8px 12px}.wide{width:100%}.chip{display:inline-flex;align-items:center;border-radius:30px;background:var(--surface-high);padding:5px 10px;font-size:11px;font-weight:700;color:var(--muted)}.chip.good{background:var(--success-bg);color:var(--success)}.tablewrap{overflow:auto}table{border-collapse:collapse;width:100%;min-width:460px}th,td{text-align:left;padding:12px 10px;border-bottom:1px solid #e7e1e9}th{font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:.6px}td{font-size:13px}.mono,pre{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}.muted{color:var(--muted)}.output{background:#f3eff7;border-radius:12px;padding:14px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:330px;overflow:auto;font-size:12px}.notice{background:#f1ebfa;color:#403653;padding:13px 15px;border-radius:13px;font-size:12px}.hidden{display:none!important}.hamb{display:none}.overlay{display:none}.toast{position:fixed;right:20px;bottom:20px;z-index:20;background:#302d35;color:white;padding:13px 18px;border-radius:14px;box-shadow:var(--shadow);max-width:min(90vw,420px)}.toast.error{background:#b3261e}.toast.success{background:#286b35}.modal{position:fixed;inset:0;background:#17131d77;z-index:15;display:grid;place-items:center;padding:20px}.modalbox{background:var(--surface);border-radius:24px;padding:24px;width:min(100%,420px);box-shadow:var(--shadow)}.modalbox h3{margin:0 0 8px}.bar{height:8px;border-radius:20px;background:var(--surface-high);overflow:hidden;margin-top:9px}.bar span{display:block;height:100%;background:var(--primary);border-radius:20px}.traffic{display:grid;grid-template-columns:1fr 1fr;gap:12px}.traffic>div{background:var(--surface-high);border-radius:14px;padding:14px}.genbuttons{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}.genbuttons button{font-size:12px;padding:12px 6px}.linkbox{background:var(--surface-high);padding:12px;border-radius:12px;margin:8px 0}.linktop{display:flex;justify-content:space-between;gap:8px;align-items:center}.small{font-size:11px}.mt{margin-top:14px}.right{text-align:right}.empty{text-align:center;color:var(--muted);padding:25px}.mobile-only{display:none}
-@media(max-width:1000px){.grid.five{grid-template-columns:repeat(2,minmax(0,1fr))}.grid.five .stat:first-child{grid-column:span 2}}
-@media(max-width:760px){.sidebar{transform:translateX(-105%);width:285px;box-shadow:var(--shadow)}.sidebar.open{transform:translateX(0)}.overlay.show{display:block;position:fixed;inset:0;background:#17131d66;z-index:4}.main{margin-left:0}.topbar{height:62px;padding:0 16px}.content{padding:22px 15px 45px}.hamb,.mobile-only{display:inline-flex}.page-head h1{font-size:23px}.grid.five{grid-template-columns:repeat(2,minmax(0,1fr))}.row{flex-direction:column;align-items:stretch;gap:0}.row .btn{width:100%}.top-actions .admin-label{display:none}}
-@media(max-width:430px){.card{padding:16px}.stat{padding:14px}.stat .v{font-size:15px}.genbuttons{gap:6px}.genbuttons button{font-size:10px;padding:11px 3px}.page-head{flex-direction:column}.traffic{gap:8px}}
+:root{
+  color-scheme:light;
+  --primary:#7c3aed;--primary-2:#a855f7;--primary-3:#6366f1;--accent:#06b6d4;
+  --surface:#ffffff;--surface-2:#faf8ff;--surface-3:#f3efff;
+  --text:#0f0d1a;--muted:#64748b;
+  --border:rgba(124,58,237,.08);--border-2:rgba(124,58,237,.15);
+  --success:#10b981;--success-bg:#d1fae5;--success-text:#047857;
+  --radius:20px;--radius-sm:12px;
+  --shadow:0 4px 24px rgba(124,58,237,.08),0 1px 3px rgba(15,13,26,.04);
+  --shadow-lg:0 24px 56px rgba(124,58,237,.16),0 4px 12px rgba(15,13,26,.04);
+  --gradient:linear-gradient(135deg,#7c3aed 0%,#6366f1 50%,#06b6d4 100%);
+  --gradient-soft:linear-gradient(135deg,rgba(124,58,237,.08) 0%,rgba(6,182,212,.08) 100%);
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  background:
+    radial-gradient(1200px 800px at 100% -10%,rgba(168,85,247,.13),transparent 60%),
+    radial-gradient(900px 600px at -10% 100%,rgba(6,182,212,.10),transparent 60%),
+    #faf9ff;
+  color:var(--text);font:14px/1.55 Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  min-height:100vh;-webkit-font-smoothing:antialiased;
+}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;border:0}
+.app{min-height:100vh}
+
+/* Sidebar */
+.sidebar{
+  position:fixed;inset:0 auto 0 0;width:268px;
+  background:rgba(255,255,255,.75);
+  backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border-right:1px solid var(--border);
+  padding:20px 16px;display:flex;flex-direction:column;z-index:5;
+  transition:transform .3s cubic-bezier(.4,0,.2,1);
+}
+.brand{display:flex;align-items:center;gap:12px;padding:6px 8px 24px;font-weight:750;font-size:16px;letter-spacing:-.01em}
+.brandmark{
+  width:42px;height:42px;border-radius:14px;
+  background:var(--gradient);color:#fff;display:grid;place-items:center;font-size:20px;
+  box-shadow:0 8px 20px rgba(124,58,237,.35),0 0 0 4px rgba(124,58,237,.08);
+  animation:float 4s ease-in-out infinite;
+}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+.brand small{color:var(--muted);font-weight:500;font-size:11px;letter-spacing:.02em}
+.navlabel{font-size:10px;letter-spacing:.14em;color:var(--muted);font-weight:700;padding:10px 14px;text-transform:uppercase}
+.nav button{
+  width:100%;background:transparent;color:var(--muted);
+  padding:12px 14px;border-radius:14px;text-align:left;
+  display:flex;gap:12px;align-items:center;margin:3px 0;
+  font-weight:600;font-size:13.5px;
+  transition:background .18s,color .18s,transform .18s;
+}
+.nav button:hover{background:var(--surface-3);color:var(--text)}
+.nav button.active{background:var(--gradient);color:#fff;box-shadow:0 8px 20px rgba(124,58,237,.3);transform:translateX(2px)}
+.nav .ico{width:20px;text-align:center;font-size:17px;display:inline-flex;justify-content:center}
+.sidefoot{margin-top:auto;border-top:1px solid var(--border);padding:16px 6px 4px}
+.status{display:inline-flex;align-items:center;gap:8px;border-radius:30px;padding:7px 13px;background:var(--surface-3);font-size:11.5px;font-weight:650;color:var(--muted)}
+.dot{width:8px;height:8px;background:var(--success);border-radius:50%;box-shadow:0 0 0 4px rgba(16,185,129,.15);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 4px rgba(16,185,129,.15)}50%{box-shadow:0 0 0 8px rgba(16,185,129,.05)}}
+
+/* Main */
+.main{margin-left:268px;min-width:0}
+.topbar{
+  height:72px;display:flex;align-items:center;justify-content:space-between;
+  padding:0 32px;background:rgba(255,255,255,.7);
+  backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border-bottom:1px solid var(--border);position:sticky;top:0;z-index:3;
+}
+.top-left{display:flex;align-items:center;gap:14px}
+.topbar h2{font-size:15px;margin:0;font-weight:700;letter-spacing:-.005em}
+.top-actions{display:flex;gap:10px;align-items:center}
+.content{max-width:1160px;margin:auto;padding:32px 32px 60px}
+
+.page-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;gap:16px}
+.page-head h1{
+  font-size:28px;letter-spacing:-.025em;margin:0 0 6px;font-weight:800;
+  background:linear-gradient(135deg,#1e1b2e 30%,#7c3aed 100%);
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+}
+.page-head p{color:var(--muted);margin:0;font-size:13.5px}
+
+/* Cards */
+.card{
+  background:rgba(255,255,255,.85);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  border:1px solid var(--border);border-radius:var(--radius);
+  padding:22px;margin-bottom:16px;box-shadow:var(--shadow);
+  transition:box-shadow .25s;
+}
+.card:hover{box-shadow:var(--shadow-lg)}
+.card h3{font-size:15px;margin:0 0 16px;font-weight:750;letter-spacing:-.005em;display:flex;align-items:center;gap:8px}
+.card h3::before{content:'';width:4px;height:16px;border-radius:2px;background:var(--gradient);display:inline-block}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.grid.four{grid-template-columns:repeat(4,minmax(0,1fr))}
+.grid.five{grid-template-columns:repeat(5,minmax(0,1fr))}
+.stat{
+  padding:18px;border-radius:16px;
+  background:linear-gradient(135deg,rgba(255,255,255,1),rgba(243,239,255,.6));
+  border:1px solid var(--border);min-width:0;position:relative;overflow:hidden;
+  transition:transform .2s,box-shadow .2s;
+}
+.stat:hover{transform:translateY(-2px);box-shadow:0 12px 28px rgba(124,58,237,.1)}
+.stat::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--gradient);opacity:.7}
+.stat .k{color:var(--muted);font-size:10.5px;font-weight:750;letter-spacing:.08em;text-transform:uppercase}
+.stat .v{font-size:18px;font-weight:800;margin-top:8px;overflow-wrap:anywhere;letter-spacing:-.015em}
+.stat .sub{font-size:11.5px;color:var(--muted);margin-top:3px}
+
+/* Fields */
+.field{display:flex;flex-direction:column;gap:7px;margin-bottom:14px;min-width:0}
+.field label{font-size:11.5px;font-weight:700;color:var(--muted);letter-spacing:.02em}
+.field input,.field select,.field textarea{
+  width:100%;border:1.5px solid var(--border-2);background:var(--surface);
+  border-radius:12px;padding:12px 14px;color:var(--text);outline:none;min-width:0;
+  transition:border-color .18s,box-shadow .18s;
+}
+.field input:hover,.field select:hover,.field textarea:hover{border-color:rgba(124,58,237,.3)}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--primary);box-shadow:0 0 0 4px rgba(124,58,237,.1)}
+.row{display:flex;gap:12px;align-items:end}
+.row>*{flex:1;min-width:0}
+
+/* Buttons */
+.btn{
+  border:0;border-radius:30px;padding:11px 20px;min-height:42px;
+  font-weight:700;font-size:13px;display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  transition:all .18s;white-space:nowrap;
+}
+.btn:disabled{opacity:.55;cursor:not-allowed}
+.filled{background:var(--gradient);color:#fff;box-shadow:0 4px 14px rgba(124,58,237,.35)}
+.filled:hover:not(:disabled){box-shadow:0 8px 24px rgba(124,58,237,.45);transform:translateY(-1px)}
+.filled:active{transform:translateY(0)}
+.tonal{background:var(--surface-3);color:var(--primary);border:1px solid var(--border-2)}
+.tonal:hover{background:#ede9fe}
+.outlined{background:transparent;color:var(--primary);border:1.5px solid var(--border-2)}
+.outlined:hover{background:var(--surface-3)}
+.danger{background:#fee2e2;color:#991b1b}
+.textbtn{background:transparent;color:var(--muted);padding:8px 12px}
+.textbtn:hover{background:var(--surface-3);color:var(--text)}
+.wide{width:100%}
+
+/* Chips */
+.chip{display:inline-flex;align-items:center;gap:6px;border-radius:30px;background:var(--surface-3);padding:5px 11px;font-size:11px;font-weight:700;color:var(--muted)}
+.chip.good{background:var(--success-bg);color:var(--success-text)}
+
+/* Table */
+.tablewrap{overflow:auto;border-radius:14px;border:1px solid var(--border)}
+table{border-collapse:collapse;width:100%;min-width:460px}
+th,td{text-align:left;padding:13px 14px;border-bottom:1px solid var(--border)}
+th{font-size:10.5px;text-transform:uppercase;color:var(--muted);letter-spacing:.08em;font-weight:750;background:var(--surface-2)}
+td{font-size:13px}
+tbody tr{transition:background .15s}
+tbody tr:hover{background:var(--surface-2)}
+tbody tr:last-child td{border-bottom:0}
+
+/* Misc */
+.mono,pre{font-family:ui-monospace,SFMono-Regular,'JetBrains Mono',Consolas,monospace;overflow-wrap:anywhere}
+.muted{color:var(--muted)}
+.output{background:linear-gradient(135deg,#f8f5ff 0%,#eef9fd 100%);border:1px solid var(--border);border-radius:14px;padding:16px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:340px;overflow:auto;font-size:12px}
+.notice{background:var(--gradient-soft);color:#403653;padding:14px 16px;border-radius:14px;font-size:12.5px;border:1px solid var(--border)}
+.hidden{display:none!important}
+.hamb{display:none}
+.overlay{display:none}
+.toast{
+  position:fixed;right:20px;bottom:20px;z-index:20;
+  background:#1e1b2e;color:#fff;padding:14px 20px;border-radius:16px;
+  box-shadow:var(--shadow-lg);max-width:min(90vw,420px);font-weight:600;font-size:13px;
+  animation:slideUp .3s cubic-bezier(.4,0,.2,1);
+}
+@keyframes slideUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+.toast.error{background:#b91c1c}
+.toast.success{background:linear-gradient(135deg,#059669,#10b981)}
+
+/* Modal */
+.modal{
+  position:fixed;inset:0;background:rgba(15,13,26,.6);
+  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+  z-index:15;display:grid;place-items:center;padding:20px;animation:fadeIn .2s;
+}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.modalbox{
+  background:var(--surface);border-radius:24px;padding:26px;
+  width:min(100%,480px);box-shadow:var(--shadow-lg);
+  animation:modalIn .3s cubic-bezier(.4,0,.2,1);
+}
+@keyframes modalIn{from{opacity:0;transform:scale(.95) translateY(10px)}to{opacity:1;transform:scale(1) translateY(0)}}
+.modalbox h3{margin:0 0 8px}
+
+/* Traffic */
+.traffic{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.traffic>div{background:var(--gradient-soft);border:1px solid var(--border);border-radius:14px;padding:14px}
+.genbuttons{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+.genbuttons button{font-size:12px;padding:12px 6px}
+.linkbox{background:var(--surface-3);padding:12px;border-radius:12px;margin:8px 0}
+.linktop{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.small{font-size:11px}
+.mt{margin-top:14px}
+.right{text-align:right}
+.empty{text-align:center;color:var(--muted);padding:32px 20px;font-size:13px}
+.mobile-only{display:none}
+
+@media(max-width:1000px){
+  .grid.four,.grid.five{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .grid.five .stat:first-child{grid-column:span 2}
+}
+@media(max-width:760px){
+  .sidebar{transform:translateX(-105%);width:290px;box-shadow:var(--shadow-lg)}
+  .sidebar.open{transform:translateX(0)}
+  .overlay.show{display:block;position:fixed;inset:0;background:rgba(15,13,26,.4);z-index:4;backdrop-filter:blur(4px)}
+  .main{margin-left:0}
+  .topbar{height:62px;padding:0 16px}
+  .content{padding:22px 15px 45px}
+  .hamb,.mobile-only{display:inline-flex}
+  .page-head h1{font-size:23px}
+  .grid,.grid.four,.grid.five{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .row{flex-direction:column;align-items:stretch;gap:0}
+  .row .btn{width:100%}
+}
+@media(max-width:430px){
+  .card{padding:16px}
+  .stat{padding:14px}
+  .stat .v{font-size:15px}
+  .genbuttons{gap:6px}
+  .genbuttons button{font-size:10px;padding:11px 3px}
+  .page-head{flex-direction:column}
+  .traffic{gap:8px}
+}
 </style></head>
 <body>
 <div class="app">
 <div class="overlay" id="overlay" onclick="toggleNav(false)"></div>
-<aside class="sidebar" id="sidebar"><div class="brand"><div class="brandmark">✦</div><div>SERVER PANEL<div class="muted small" style="font-weight:500">Management Console</div></div></div>
-<div class="navlabel">MENU UTAMA</div><nav class="nav">
-<button data-page="dashboard" class="active" onclick="navigate('dashboard')"><span class="ico">▦</span>Dashboard</button>
-<button data-page="ssh" onclick="navigate('ssh')"><span class="ico">♙</span>Buat Akun SSH</button>
-<button data-page="xray" onclick="navigate('xray')"><span class="ico">◉</span>Buat Akun Xray</button>
-</nav><div class="sidefoot"><div class="status" id="sideStatus">● Public Self-Service</div></div></aside>
-<div class="main"><header class="topbar"><div class="top-left"><button class="btn textbtn hamb" onclick="toggleNav(true)">☰</button><h2 id="topTitle">Dashboard</h2></div><div class="top-actions"><span class="chip good" id="serverState">● Connecting</span></div></header>
-<main class="content" id="view"></main></div></div>
+<aside class="sidebar" id="sidebar">
+  <div class="brand">
+    <div class="brandmark">✦</div>
+    <div>SERVER PANEL<div class="muted small" style="font-weight:500">Modern Console</div></div>
+  </div>
+  <div class="navlabel">MENU UTAMA</div>
+  <nav class="nav">
+    <button data-page="dashboard" class="active" onclick="navigate('dashboard')"><span class="ico">▦</span>Dashboard</button>
+    <button data-page="ssh" onclick="navigate('ssh')"><span class="ico">♙</span>Buat Akun SSH</button>
+    <button data-page="xray" onclick="navigate('xray')"><span class="ico">◉</span>Buat Akun Xray</button>
+  </nav>
+  <div class="sidefoot"><div class="status"><span class="dot"></span>Public Self-Service</div></div>
+</aside>
+<div class="main">
+  <header class="topbar">
+    <div class="top-left">
+      <button class="btn textbtn hamb" onclick="toggleNav(true)">☰</button>
+      <h2 id="topTitle">Dashboard</h2>
+    </div>
+    <div class="top-actions"><span class="chip good" id="serverState">● Connecting</span></div>
+  </header>
+  <main class="content" id="view"></main>
+</div></div>
 <div id="toast" class="toast hidden"></div>
 <div class="modal hidden" id="detailModal" onclick="if(event.target===this)closeDetail()">
   <div class="modalbox">
@@ -101,23 +338,9 @@ function showSshDetail(i){
  Password   : ${u.password||'-'}
  Dibuat     : ${u.created_at||'-'}
  Status     : ${online?('ONLINE ('+online.ip+')'):'OFFLINE'}
- SSH Domain : ${serverInfo?.ssh_domain||'-'}
+ Domain     : ${serverInfo?.domain||'-'}
 ===========================`;
   openDetail('Detail Akun SSH',text);
-}
-
-function showXrayDetail(i){
-  const a=xrayAccounts[i];if(!a)return;
-  const links=makeXrayLinks(a);
-  const protocols=['VLESS','VMESS','TROJAN'];
-  let text=`Nama   : ${a.name}\nUUID   : ${a.id}\n\n`;
-  protocols.forEach(p=>{
-    text+=`===== ${p} =====\n`;
-    links.filter(x=>x.p===p).forEach(x=>{
-      text+=`[${x.t} · ${x.path} · Port ${x.port} · ${x.security}]\n${x.link}\n\n`;
-    });
-  });
-  openDetail('Akun Xray: '+a.name,text);
 }
 
 // -------------------- Stats / dashboard --------------------
@@ -186,9 +409,16 @@ function renderDashboard(){
          ['UDPGW',s.sys_settings?.udpgw_port||7300]]
         .map(x=>`<div><span class="muted">${x[0]}</span><br><b>${esc(x[1])}</b></div>`).join('')}
     </div>`)}
-    ${card('Domain & Service Paths',`
-      <div class="field"><label>Domain Xray (XRAY_DOMAIN)</label><div class="row"><input readonly value="${esc(s.xray_domain||s.domain||'Belum diatur di ENV')}"><button class="btn tonal" onclick="copyText(this.dataset.copy)" data-copy="${esc(s.xray_domain||s.domain||'')}">Salin</button></div></div>
-      <div class="field"><label>Domain SSH (SSH_DOMAIN)</label><div class="row"><input readonly value="${esc(s.ssh_domain||'Belum diatur di ENV')}"><button class="btn tonal" onclick="copyText(this.dataset.copy)" data-copy="${esc(s.ssh_domain||'')}">Salin</button></div></div>`)}`;
+    ${card('Domain',`
+      <div class="field">
+        <label>Domain Server (DOMAIN)</label>
+        <div class="row">
+          <input readonly value="${esc(s.domain||'Belum diatur di ENV')}">
+          <button class="btn tonal" onclick="copyText(this.dataset.copy)" data-copy="${esc(s.domain||'')}">📋 Salin</button>
+        </div>
+      </div>
+      <p class="muted small">Domain ini dipakai untuk akun <b>Xray</b> dan <b>SSH</b>. Atur melalui environment variable <code>DOMAIN</code>.</p>
+    `)}`;
 }
 // -------------------- SSH account --------------------
 async function loadSSH(){
@@ -221,7 +451,7 @@ async function renderSSH(){
     <div class="field"><label>Password</label><input id="sshPass" type="password" placeholder="Minimal 8 karakter" autocomplete="new-password"></div>
     <button class="btn filled" onclick="createSSH()">＋ Buat Akun</button></div>
     <div id="sshResult"></div>
-    <p class="muted small">Akun menggunakan Dropbear. Domain SSH: <b>${esc(serverInfo?.ssh_domain||'Atur SSH_DOMAIN di ENV')}</b> · Port mux: <b>${esc(serverInfo?.ssh_port||8081)}</b>.</p>`);
+    <p class="muted small">Akun menggunakan Dropbear. Domain: <b>${esc(serverInfo?.domain||'Atur DOMAIN di ENV')}</b> · Port mux: <b>${esc(serverInfo?.ssh_port||8081)}</b>.</p>`);
   $('view').innerHTML=head+form+card('Daftar Akun SSH',`<div id="sshList" class="empty">Memuat daftar akun...</div>`);
   await loadSSH();
 }
@@ -300,7 +530,7 @@ const XRAY_INBOUNDS=[
 ];
 
 function makeXrayLinks(a){
-  const host=(serverInfo?.xray_domain||serverInfo?.domain||stats?.domain||location.hostname).replace(/^https?:\/\//,'').split('/')[0];
+  const host=(serverInfo?.domain||stats?.domain||location.hostname).replace(/^https?:\\/\\//,'').split('/')[0];
   const sni=host;
   const variants=[{port:'443',security:'tls',label:'TLS ON'},{port:'80',security:'none',label:'TLS OFF'}];
   return XRAY_INBOUNDS.flatMap(ib=>variants.map(v=>{
@@ -320,15 +550,29 @@ function makeXrayLinks(a){
   }));
 }
 
+function showXrayDetail(i){
+  const a=xrayAccounts[i];if(!a)return;
+  const links=makeXrayLinks(a);
+  const protocols=['VLESS','VMESS','TROJAN'];
+  let text=`Nama   : ${a.name}\\nUUID   : ${a.id}\\n\\n`;
+  protocols.forEach(p=>{
+    text+=`===== ${p} =====\\n`;
+    links.filter(x=>x.p===p).forEach(x=>{
+      text+=`[${x.t} · ${x.path} · Port ${x.port} · ${x.security}]\\n${x.link}\\n\\n`;
+    });
+  });
+  openDetail('Akun Xray: '+a.name,text);
+}
+
 function showXray(id){
   const a=(id&&typeof id==='object')?id:xrayAccounts.find(x=>x.id===id);
   if(!a)return;
   const links=makeXrayLinks(a);
   const protocols=['VLESS','VMESS','TROJAN'];
-  let text=`Nama   : ${a.name}\nUUID   : ${a.id}\n\n`;
+  let text=`Nama   : ${a.name}\\nUUID   : ${a.id}\\n\\n`;
   protocols.forEach(p=>{
-    text+=`===== ${p} =====\n`;
-    links.filter(x=>x.p===p).forEach(x=>{text+=`[${x.t} · ${x.path} · Port ${x.port} · ${x.security}]\n${x.link}\n\n`});
+    text+=`===== ${p} =====\\n`;
+    links.filter(x=>x.p===p).forEach(x=>{text+=`[${x.t} · ${x.path} · Port ${x.port} · ${x.security}]\\n${x.link}\\n\\n`});
   });
   openDetail('Akun Xray: '+a.name,text);
 }
@@ -572,7 +816,6 @@ def get_online_ssh_users():
         except Exception:
             continue
         if uname == "root":
-            # child sshd root = master / bukan user session; who sudah cover root user
             continue
         key = (uname, ip)
         if key in seen:
@@ -595,8 +838,8 @@ def get_online_ssh_users():
 # ---------------------------------------------------------------------------
 
 def server_domain(handler):
-    if XRAY_DOMAIN:
-        return XRAY_DOMAIN
+    if DOMAIN:
+        return DOMAIN
     host = handler.headers.get("Host", "").split(":", 1)[0].strip()
     if host and host not in ("localhost", "127.0.0.1") and not host.endswith(".railway.app"):
         return host
@@ -817,8 +1060,6 @@ def stats_payload(handler):
         "xray_online_users": xray_online,
         "xray_online": str(sum(u.get("connections", 0) for u in xray_online)),
         "domain": server_domain(handler),
-        "xray_domain": XRAY_DOMAIN or server_domain(handler),
-        "ssh_domain": SSH_DOMAIN,
         "ui_port": PORT,
         "xray_proxy_port": XRAY_PROXY_PORT,
         "ssh_port": SSH_PUBLIC_PORT,
@@ -879,8 +1120,6 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/__info":
                 self.send_json({
                     "domain": server_domain(self),
-                    "xray_domain": XRAY_DOMAIN or server_domain(self),
-                    "ssh_domain": SSH_DOMAIN,
                     "ui_port": PORT,
                     "xray_proxy_port": XRAY_PROXY_PORT,
                     "ssh_port": SSH_PUBLIC_PORT,
@@ -905,7 +1144,7 @@ class Handler(BaseHTTPRequestHandler):
                     f" Username   : {account['username']}\n"
                     f" Password   : {account['password']}\n"
                     f" Dibuat     : {account['created_at']}\n"
-                    f" SSH Domain : {SSH_DOMAIN}\n"
+                    f" Domain     : {DOMAIN}\n"
                     "==========================="
                 )
                 self.send_json({"status": "success", "message": msg, "user": account})
