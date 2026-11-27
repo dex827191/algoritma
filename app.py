@@ -19,7 +19,7 @@ from urllib.parse import urlparse
 # ---------------------------------------------------------------------------
 
 HOST = os.environ.get("APP_HOST", "127.0.0.1")
-PORT = int(os.environ.get("APP_PORT", "2053"))
+PORT = int(os.environ.get("APP_PORT", "8080"))
 SSH_DATA_DIR = os.environ.get("SSH_DATA_DIR", "/etc/ssh-sni")
 SSH_USERS_FILE = os.path.join(SSH_DATA_DIR, "users.json")
 XRAY_USERS_FILE = "/app/users.json"
@@ -198,7 +198,7 @@ function renderDashboard(){
         ${Array.from({length:35},()=>`<i style="display:block;flex:1;height:${10+Math.random()*90}%;border-radius:4px 4px 0 0;background:#8b78bd"></i>`).join('')}
       </div></div>`)}
     ${card('Info Pengaturan Server',`<div class="grid">
-      ${[['SSH Backend Port',s.ws_proxy_cfg?.sshPort||22],['UI Panel',2053],
+      ${[['SSH Backend Port',s.ws_proxy_cfg?.sshPort||22],['UI Panel',8080],
          ['Xray Proxy',s.xray_proxy_port||8080],['SSH Mux',s.ssh_port||8081],
          ['Xray','data/config.json'],['BBR',s.sys_settings?.enable_bbr==='true'?'ON':'OFF'],
          ['UDPGW',s.sys_settings?.udpgw_port||7300]]
