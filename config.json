@@ -1,92 +1,166 @@
 {
-  "log": { "loglevel": "warning", "access": "none" },
-  "stats": {},
-  "api": { "tag": "api", "services": ["HandlerService", "StatsService"] },
-  "policy": {
-    "levels": { "0": { "handshake": 4, "connIdle": 300, "uplinkOnly": 2, "downlinkOnly": 5, "bufferSize": 10240 } },
-    "system": {
-      "statsInboundUplink": true,
-      "statsInboundDownlink": true,
-      "statsOutboundUplink": true,
-      "statsOutboundDownlink": true
-    }
-  },
-  "dns": {
-    "servers": [
-      { "address": "1.1.1.1", "port": 53 },
-      { "address": "8.8.8.8", "port": 53 },
-      "localhost"
+    "log": {
+        "loglevel": "warning"
+    },
+    "inbounds": [
+        {
+            "listen": "127.0.0.1",
+            "port": 18080,
+            "protocol": "vless",
+            "settings": {
+                "clients": [],
+                "decryption": "none"
+            },
+            "streamSettings": {
+                "network": "xhttp",
+                "security": "none",
+                "xhttpSettings": {
+                    "path": "/xhttp",
+                    "mode": "auto"
+                }
+            },
+            "tag": "vless-xhttp"
+        },
+        {
+            "listen": "127.0.0.1",
+            "port": 18081,
+            "protocol": "vless",
+            "settings": {
+                "clients": [],
+                "decryption": "none"
+            },
+            "streamSettings": {
+                "network": "httpupgrade",
+                "security": "none",
+                "httpupgradeSettings": {
+                    "path": "/httpup"
+                }
+            },
+            "tag": "vless-httpupgrade"
+        },
+        {
+            "listen": "127.0.0.1",
+            "port": 18082,
+            "protocol": "vless",
+            "settings": {
+                "clients": [],
+                "decryption": "none"
+            },
+            "streamSettings": {
+                "network": "ws",
+                "security": "none",
+                "wsSettings": {
+                    "path": "/vless"
+                }
+            },
+            "tag": "vless-ws"
+        },
+        {
+            "listen": "127.0.0.1",
+            "port": 18083,
+            "protocol": "vmess",
+            "settings": {
+                "clients": []
+            },
+            "streamSettings": {
+                "network": "xhttp",
+                "security": "none",
+                "xhttpSettings": {
+                    "path": "/vmess-xhttp",
+                    "mode": "auto"
+                }
+            },
+            "tag": "vmess-xhttp"
+        },
+        {
+            "listen": "127.0.0.1",
+            "port": 18084,
+            "protocol": "vmess",
+            "settings": {
+                "clients": []
+            },
+            "streamSettings": {
+                "network": "httpupgrade",
+                "security": "none",
+                "httpupgradeSettings": {
+                    "path": "/vmess-httpup"
+                }
+            },
+            "tag": "vmess-httpupgrade"
+        },
+        {
+            "listen": "127.0.0.1",
+            "port": 18085,
+            "protocol": "vmess",
+            "settings": {
+                "clients": []
+            },
+            "streamSettings": {
+                "network": "ws",
+                "security": "none",
+                "wsSettings": {
+                    "path": "/vmess"
+                }
+            },
+            "tag": "vmess-ws"
+        },
+        {
+            "listen": "127.0.0.1",
+            "port": 18086,
+            "protocol": "trojan",
+            "settings": {
+                "clients": []
+            },
+            "streamSettings": {
+                "network": "xhttp",
+                "security": "none",
+                "xhttpSettings": {
+                    "path": "/trojan-xhttp",
+                    "mode": "auto"
+                }
+            },
+            "tag": "trojan-xhttp"
+        },
+        {
+            "listen": "127.0.0.1",
+            "port": 18087,
+            "protocol": "trojan",
+            "settings": {
+                "clients": []
+            },
+            "streamSettings": {
+                "network": "httpupgrade",
+                "security": "none",
+                "httpupgradeSettings": {
+                    "path": "/trojan-httpup"
+                }
+            },
+            "tag": "trojan-httpupgrade"
+        },
+        {
+            "listen": "127.0.0.1",
+            "port": 18088,
+            "protocol": "trojan",
+            "settings": {
+                "clients": []
+            },
+            "streamSettings": {
+                "network": "ws",
+                "security": "none",
+                "wsSettings": {
+                    "path": "/trojan"
+                }
+            },
+            "tag": "trojan-ws"
+        }
     ],
-    "queryStrategy": "UseIP"
-  },
-  "inbounds": [
-    { "listen": "127.0.0.1", "port": 10085, "protocol": "dokodemo-door",
-      "settings": { "address": "127.0.0.1" }, "tag": "api" },
-
-    { "listen": "127.0.0.1", "port": 18080, "protocol": "vless", "tag": "vless-xhttp",
-      "settings": { "clients": [], "decryption": "none" },
-      "streamSettings": { "network": "xhttp", "security": "none",
-        "xhttpSettings": { "path": "/xhttp", "mode": "auto" } },
-      "sniffing": { "enabled": true, "destOverride": ["http","tls","quic"] } },
-
-    { "listen": "127.0.0.1", "port": 18081, "protocol": "vless", "tag": "vless-httpupgrade",
-      "settings": { "clients": [], "decryption": "none" },
-      "streamSettings": { "network": "httpupgrade", "security": "none",
-        "httpupgradeSettings": { "path": "/httpup" } },
-      "sniffing": { "enabled": true, "destOverride": ["http","tls","quic"] } },
-
-    { "listen": "127.0.0.1", "port": 18082, "protocol": "vless", "tag": "vless-ws",
-      "settings": { "clients": [], "decryption": "none" },
-      "streamSettings": { "network": "ws", "security": "none",
-        "wsSettings": { "path": "/vless" } },
-      "sniffing": { "enabled": true, "destOverride": ["http","tls","quic"] } },
-
-    { "listen": "127.0.0.1", "port": 18083, "protocol": "vmess", "tag": "vmess-xhttp",
-      "settings": { "clients": [] },
-      "streamSettings": { "network": "xhttp", "security": "none",
-        "xhttpSettings": { "path": "/vmess-xhttp", "mode": "auto" } },
-      "sniffing": { "enabled": true, "destOverride": ["http","tls","quic"] } },
-
-    { "listen": "127.0.0.1", "port": 18084, "protocol": "vmess", "tag": "vmess-httpupgrade",
-      "settings": { "clients": [] },
-      "streamSettings": { "network": "httpupgrade", "security": "none",
-        "httpupgradeSettings": { "path": "/vmess-httpup" } },
-      "sniffing": { "enabled": true, "destOverride": ["http","tls","quic"] } },
-
-    { "listen": "127.0.0.1", "port": 18085, "protocol": "vmess", "tag": "vmess-ws",
-      "settings": { "clients": [] },
-      "streamSettings": { "network": "ws", "security": "none",
-        "wsSettings": { "path": "/vmess" } },
-      "sniffing": { "enabled": true, "destOverride": ["http","tls","quic"] } },
-
-    { "listen": "127.0.0.1", "port": 18086, "protocol": "trojan", "tag": "trojan-xhttp",
-      "settings": { "clients": [] },
-      "streamSettings": { "network": "xhttp", "security": "none",
-        "xhttpSettings": { "path": "/trojan-xhttp", "mode": "auto" } },
-      "sniffing": { "enabled": true, "destOverride": ["http","tls","quic"] } },
-
-    { "listen": "127.0.0.1", "port": 18087, "protocol": "trojan", "tag": "trojan-httpupgrade",
-      "settings": { "clients": [] },
-      "streamSettings": { "network": "httpupgrade", "security": "none",
-        "httpupgradeSettings": { "path": "/trojan-httpup" } },
-      "sniffing": { "enabled": true, "destOverride": ["http","tls","quic"] } },
-
-    { "listen": "127.0.0.1", "port": 18088, "protocol": "trojan", "tag": "trojan-ws",
-      "settings": { "clients": [] },
-      "streamSettings": { "network": "ws", "security": "none",
-        "wsSettings": { "path": "/trojan" } },
-      "sniffing": { "enabled": true, "destOverride": ["http","tls","quic"] } }
-  ],
-  "outbounds": [
-    { "protocol": "freedom", "tag": "direct", "settings": { "domainStrategy": "UseIP" } },
-    { "protocol": "blackhole", "tag": "blocked" }
-  ],
-  "routing": {
-    "domainStrategy": "IPIfNonMatch",
-    "rules": [
-      { "type": "field", "inboundTag": ["api"], "outboundTag": "api" },
-      { "type": "field", "protocol": ["bittorrent"], "outboundTag": "blocked" },
-      { "type": "field", "network": "tcp,udp", "outboundTag": "direct" }
+    "outbounds": [
+        {
+            "protocol": "freedom",
+            "tag": "direct",
+            "settings": {
+                "domainStrategy": "UseIP"
+            }
+        }
     ]
-  }
 }

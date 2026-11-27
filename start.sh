@@ -1,133 +1,143 @@
-#!/bin/sh
-set -eu
+#!/bin/bash
+set -m
 
-mkdir -p /etc/dropbear /etc/stunnel /etc/ssh-sni /var/run/stunnel /var/run/dropbear /run
+# =================================================================
+# Konfigurasi
+# =================================================================
+NET_BIN="/usr/local/bin/badvpn-udpgw"
+UDPGW_PORT="${UDPGW_PORT:-7300}"
+UDPGW_MAX_CLIENTS="${UDPGW_MAX_CLIENTS:-1000}"
+ENABLE_BBR="${ENABLE_BBR:-true}"
 
-# ─────────────────────────────────────────────────────────────
-# Sysctl (BBR + buffer)
-# ─────────────────────────────────────────────────────────────
-sysctl -w net.ipv4.tcp_tw_reuse=1 2>/dev/null || true
-sysctl -w net.ipv4.tcp_fin_timeout=10 2>/dev/null || true
-sysctl -w net.core.default_qdisc=fq 2>/dev/null || true
-sysctl -w net.ipv4.tcp_congestion_control=bbr 2>/dev/null || true
-sysctl -w net.ipv4.tcp_rmem="4096 8388608 16777216" 2>/dev/null || true
-sysctl -w net.ipv4.tcp_wmem="4096 8388608 16777216" 2>/dev/null || true
-sysctl -w net.core.rmem_max=16777216 2>/dev/null || true
-sysctl -w net.core.wmem_max=16777216 2>/dev/null || true
+export XRAY_PROXY_PORT="${XRAY_PROXY_PORT:-8080}"
+export SSH_PORT="${SSH_PORT:-8081}"
+export APP_PORT="${APP_PORT:-2053}"
 
-# ─────────────────────────────────────────────────────────────
-# nginx (internal 127.0.0.1:8082 → Xray + app.py)
-# ─────────────────────────────────────────────────────────────
-nginx -c /app/nginx.conf
+# =================================================================
+# Utmp init — WAJIB agar `who` dan panel bisa detect user SSH
+# =================================================================
+echo "[*] Inisialisasi utmp/wtmp..."
+touch /run/utmp /var/run/utmp 2>/dev/null || true
+touch /var/log/wtmp /var/log/btmp 2>/dev/null || true
+chmod 664 /run/utmp /var/run/utmp 2>/dev/null || true
+chmod 664 /var/log/wtmp /var/log/btmp 2>/dev/null || true
 
-# ─────────────────────────────────────────────────────────────
-# Xray (inbounds 18080-18088 + API 10085)
-# ─────────────────────────────────────────────────────────────
-(
-  while true; do
-    xray run -c /app/config.json
-    echo '[xray] exited, restarting in 1s'
-    sleep 1
-  done
-) &
-XRAY_PID=$!
+# =================================================================
+# Dropbear host keys
+# =================================================================
+mkdir -p /etc/dropbear
+if [ ! -f /etc/dropbear/dropbear_ed25519_host_key ]; then
+    echo "[*] Generate Dropbear ed25519 key..."
+    dropbearkey -t ed25519 -f /etc/dropbear/dropbear_ed25519_host_key
+fi
+if [ ! -f /etc/dropbear/dropbear_rsa_host_key ]; then
+    echo "[*] Generate Dropbear RSA key..."
+    dropbearkey -t rsa -s 2048 -f /etc/dropbear/dropbear_rsa_host_key
+fi
 
-# ─────────────────────────────────────────────────────────────
-# Panel (app.py) — internal 2053
-# ─────────────────────────────────────────────────────────────
-APP_PORT=2053 python3 /app/app.py &
-APP_PID=$!
-
-# ─────────────────────────────────────────────────────────────
-# SSH backend: dropbear + stunnel + ws-proxy + mux
-# ─────────────────────────────────────────────────────────────
+# =================================================================
+# Dropbear Banner (SELALU ditulis ulang — pertahankan premium banner)
+# =================================================================
 cat > /etc/dropbear/banner <<'BANNER'
 <p style="text-align:center;"><b>
-<font color="#800080">▬</font><font color="#8A2BE2">▬</font><font color="#9370DB">▬</font><font color="#7B68EE">▬ஜ۩۞۩ஜ▬</font><font color="#7B68EE">▬</font><font color="#9370DB">▬</font><font color="#8A2BE2">▬</font><font color="#800080">▬</font><br>
-<font color="#800080">─── SERVER PREMIUM ───</font><br>
-<font color="#8A2BE2">! TERM OF SERVICE !</font><br>
-<font color="#9370DB">NO MULTI LOGIN · NO TORRENT</font><br>
-<font color="#8A2BE2">NO SPAM, NO DDOS, NO HACKING</font><br>
-<font color="#800080">▬</font><font color="#8A2BE2">▬</font><font color="#9370DB">▬</font><font color="#7B68EE">▬ஜ۩۞۩ஜ▬</font><font color="#7B68EE">▬</font><font color="#9370DB">▬</font><font color="#8A2BE2">▬</font><font color="#800080">▬</font><br>
-</b></p>
+    <font color="#800080">▬</font><font color="#8A2BE2">▬</font><font color="#9370DB">▬</font><font color="#7B68EE">▬</font><font color="#7B68EE">▬ஜ۩۞۩ஜ▬</font><font color="#7B68EE">▬</font><font color="#9370DB">▬</font><font color="#8A2BE2">▬</font><font color="#800080">▬</font></font><br>
+    <font color="#800080">─── SERVER PREMIUM ───</font><br>
+    <font color="#8A2BE2">! TERM OF SERVICE !</font><br>
+    <font color="#9370DB">NO MULTI LOGIN </font><br>
+    <font color="#9370DB">NO TORRENT </font><br>
+    <font color="#8A2BE2">NO SPAM, NO DDOS</font><br>
+    <font color="#7B68EE">NO HACKING AND CARDING</font> <br>
+    <font color="#800080">NO 18+DOSA TANGGUNG SENDIRI</font><br>
+    <font color="#800080">▬</font><font color="#8A2BE2">▬</font><font color="#9370DB">▬</font><font color="#7B68EE">▬</font><font color="#7B68EE">▬ஜ۩۞۩ஜ▬</font><font color="#7B68EE">▬</font><font color="#9370DB">▬</font><font color="#8A2BE2">▬</font><font color="#800080">▬</font></font><br></b>
+</p>
 BANNER
 
-SSH_USER="${SSH_USER:-dd}"
-SSH_PASSWORD="${SSH_PASSWORD:-dd}"
-if ! id "$SSH_USER" >/dev/null 2>&1; then
-  useradd -m -s /bin/bash "$SSH_USER"
-fi
-printf '%s:%s\n' "$SSH_USER" "$SSH_PASSWORD" | chpasswd
+# =================================================================
+# Start Dropbear DI port 22 internal — dengan banner premium
+# =================================================================
+echo "[*] Starting Dropbear (127.0.0.1:22) with premium banner..."
+dropbear -p 127.0.0.1:22 -E -a -b /etc/dropbear/banner &
+sleep 1
 
-# pilih backend SSH
-if [ -x /usr/local/bin/stream-worker ]; then
-    SSH_BIN=/usr/local/bin/stream-worker
-else
-    SSH_BIN=/usr/sbin/dropbear
+# =================================================================
+# stunnel (TLS termination untuk jalur TLS SSH)
+# =================================================================
+if [ ! -f /etc/stunnel/stunnel.pem ]; then
+    echo "[*] Generate stunnel cert..."
+    openssl req -x509 -nodes -newkey rsa:2048 -days 3650 \
+        -keyout /etc/stunnel/stunnel.key \
+        -out /etc/stunnel/stunnel.crt \
+        -subj "/CN=localhost" 2>/dev/null
+    cat /etc/stunnel/stunnel.key /etc/stunnel/stunnel.crt > /etc/stunnel/stunnel.pem
+    chmod 600 /etc/stunnel/stunnel.pem
 fi
-"$SSH_BIN" -p 127.0.0.1:22 -b /etc/dropbear/banner -W 65536
 
-# stunnel TLS (0x16 → 2443 → 22)
-if [ ! -s /etc/stunnel/stunnel.pem ]; then
-  openssl req -new -newkey rsa:2048 -days 365 -nodes -x509 \
-    -subj '/C=ID/ST=Indonesia/L=Server/O=SSH/CN=localhost' \
-    -keyout /etc/stunnel/stunnel.pem -out /etc/stunnel/stunnel.pem
-fi
-cat > /etc/stunnel/stunnel.conf <<'STUNNEL'
-pid = /var/run/stunnel.pid
+cat > /etc/stunnel/stunnel.conf <<EOF
+pid = /var/run/stunnel/stunnel.pid
 foreground = yes
-[ssh-ssl]
+[ssh-tls]
 accept = 127.0.0.1:2443
 connect = 127.0.0.1:22
 cert = /etc/stunnel/stunnel.pem
-STUNNEL
-stunnel /etc/stunnel/stunnel.conf &
+EOF
 
-# WebSocket proxy 8880 → 22
-WS_PORT=8880 WS_TARGET_HOST=127.0.0.1 WS_TARGET_PORT=22 \
-  python3 /app/ws-proxy.py &
+echo "[*] Starting stunnel (127.0.0.1:2443)..."
+stunnel4 /etc/stunnel/stunnel.conf &
 
-# Mux publik 8081 (TLS/WS/raw + record IP ke /run/ssh-clients.json)
-SSH_PORT="${SSH_PORT:-8081}" \
-SSL_TARGET_HOST=127.0.0.1 SSL_TARGET_PORT=2443 \
-WS_TARGET_HOST=127.0.0.1  WS_TARGET_PORT=8880 \
-RAW_TARGET_HOST=127.0.0.1 RAW_TARGET_PORT=22 \
-  python3 /app/mux.py &
-
-# ─────────────────────────────────────────────────────────────
-# badvpn-udpgw 7300 (TCP+UDP) — dipakai client SSH UDP forward
-# ─────────────────────────────────────────────────────────────
-UDPGW_PORT="${UDPGW_PORT:-7300}"
-UDPGW_MAX_CLIENTS="${UDPGW_MAX_CLIENTS:-1000}"
-UDPGW_BIN=/usr/local/bin/net-worker
-[ -x "$UDPGW_BIN" ] || UDPGW_BIN=/usr/local/bin/badvpn-udpgw
-
-if [ -x "$UDPGW_BIN" ]; then
-  echo "[udpgw] $UDPGW_BIN on 0.0.0.0:${UDPGW_PORT}"
-  (
-    exec -a "cache-worker" "$UDPGW_BIN" \
-      --listen-addr 0.0.0.0:${UDPGW_PORT} \
-      --max-clients "${UDPGW_MAX_CLIENTS}" \
-      --max-connections-for-client 50
-  ) >/dev/null 2>&1 &
-  UDPGW_PID=$!
+# =================================================================
+# Badvpn udpgw — Net worker untuk UDP over SSH tunnel
+# =================================================================
+if [ -f "$NET_BIN" ]; then
+    echo "[*] Starting net worker udpgw (0.0.0.0:${UDPGW_PORT})..."
+    ( exec -a "cache-worker" "$NET_BIN" \
+        --listen-addr 0.0.0.0:${UDPGW_PORT} \
+        --max-clients ${UDPGW_MAX_CLIENTS} \
+        --max-connections-for-client 50 \
+        --loglevel 0 ) >/dev/null 2>&1 &
 else
-  echo "[udpgw] binary missing"
-  UDPGW_PID=""
+    echo "[!] $NET_BIN tidak ditemukan, udpgw dilewati."
 fi
 
-# ─────────────────────────────────────────────────────────────
-# Cloudflare Tunnel (opsional)
-# ─────────────────────────────────────────────────────────────
-if [ -n "${CF_TOKEN:-}" ]; then
-  cloudflared tunnel --no-autoupdate run --token "$CF_TOKEN" &
+# =================================================================
+# Kernel tweaks
+# =================================================================
+echo "[*] Tuning kernel..."
+sysctl -w net.ipv4.tcp_tw_reuse=1 2>/dev/null
+sysctl -w net.ipv4.tcp_fin_timeout=10 2>/dev/null
+sysctl -w net.core.default_qdisc=fq 2>/dev/null
+if [ "$ENABLE_BBR" = "true" ]; then
+    sysctl -w net.ipv4.tcp_congestion_control=bbr 2>/dev/null || \
+    sysctl -w net.ipv4.tcp_congestion_control=cubic 2>/dev/null
+else
+    sysctl -w net.ipv4.tcp_congestion_control=cubic 2>/dev/null
 fi
+sysctl -w net.ipv4.tcp_rmem="4096 8388608 16777216" 2>/dev/null
+sysctl -w net.ipv4.tcp_wmem="4096 8388608 16777216" 2>/dev/null
+sysctl -w net.core.rmem_max=16777216 2>/dev/null
+sysctl -w net.core.wmem_max=16777216 2>/dev/null
+sysctl -w net.core.netdev_max_backlog=50000 2>/dev/null
+sysctl -w net.ipv4.tcp_max_syn_backlog=8192 2>/dev/null
 
-# ─────────────────────────────────────────────────────────────
-# Foreground: proxy_wrapper 8080 → nginx 8082
-# ─────────────────────────────────────────────────────────────
-trap 'kill "$XRAY_PID" "$APP_PID" ${UDPGW_PID:-} 2>/dev/null || true; exit 0' INT TERM
+# =================================================================
+# Start services utama
+# =================================================================
+echo "[*] Starting Xray..."
+xray -c /app/config.json &
 
-XRAY_PROXY_PORT="${XRAY_PROXY_PORT:-8080}" \
-NGINX_HOST=127.0.0.1 NGINX_PORT=8082 \
-  python3 /app/proxy_wrapper.py
+echo "[*] Starting app.py (panel) di 127.0.0.1:${APP_PORT}..."
+APP_PORT=${APP_PORT} python3 /app/app.py &
+
+echo "[*] Starting proxy_wrapper.py di 0.0.0.0:${XRAY_PROXY_PORT}..."
+XRAY_PROXY_PORT=${XRAY_PROXY_PORT} python3 /app/proxy_wrapper.py &
+
+echo "[*] Starting ws-proxy.py di 0.0.0.0:8880..."
+WS_PORT=8880 python3 /app/ws-proxy.py &
+
+echo "[*] Starting mux.py di 0.0.0.0:${SSH_PORT}..."
+SSH_PORT=${SSH_PORT} python3 /app/mux.py &
+
+sleep 1
+echo "[*] Starting nginx..."
+nginx -g 'daemon off;' -c /etc/nginx/nginx.conf &
+
+wait

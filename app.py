@@ -19,7 +19,7 @@ from urllib.parse import urlparse
 # ---------------------------------------------------------------------------
 
 HOST = os.environ.get("APP_HOST", "127.0.0.1")
-PORT = int(os.environ.get("APP_PORT", "8080"))
+PORT = int(os.environ.get("APP_PORT", "2053"))          # <-- default 2053
 SSH_DATA_DIR = os.environ.get("SSH_DATA_DIR", "/etc/ssh-sni")
 SSH_USERS_FILE = os.path.join(SSH_DATA_DIR, "users.json")
 XRAY_USERS_FILE = "/app/users.json"
@@ -28,6 +28,8 @@ XRAY_DOMAIN = os.environ.get("XRAY_DOMAIN", "").strip()
 SSH_DOMAIN = os.environ.get("SSH_DOMAIN", "").strip()
 XRAY_PROXY_PORT = int(os.environ.get("XRAY_PROXY_PORT", "8080"))
 SSH_PUBLIC_PORT = int(os.environ.get("SSH_PORT", "8081"))
+UDPGW_PORT = int(os.environ.get("UDPGW_PORT", "7300"))
+ENABLE_BBR = os.environ.get("ENABLE_BBR", "false").lower() == "true"
 
 XRAY_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,23}")
 
@@ -198,7 +200,7 @@ function renderDashboard(){
         ${Array.from({length:35},()=>`<i style="display:block;flex:1;height:${10+Math.random()*90}%;border-radius:4px 4px 0 0;background:#8b78bd"></i>`).join('')}
       </div></div>`)}
     ${card('Info Pengaturan Server',`<div class="grid">
-      ${[['SSH Backend Port',s.ws_proxy_cfg?.sshPort||22],['UI Panel',8080],
+      ${[['SSH Backend Port',s.ws_proxy_cfg?.sshPort||22],['UI Panel',s.ui_port||2053],
          ['Xray Proxy',s.xray_proxy_port||8080],['SSH Mux',s.ssh_port||8081],
          ['Xray','data/config.json'],['BBR',s.sys_settings?.enable_bbr==='true'?'ON':'OFF'],
          ['UDPGW',s.sys_settings?.udpgw_port||7300]]
@@ -524,6 +526,35 @@ def _split_hostport(addr):
     return addr, ""
 
 
+def _pid_user(pid):
+    """Username pemilik proses, atau None."""
+    try:
+        uid = os.stat(f"/proc/{pid}").st_uid
+        return pwd.getpwuid(uid).pw_name
+    except Exception:
+        return None
+
+
+def _resolve_session_user(pid):
+    """Kalau process pemegang socket adalah root (dropbear parent),
+    telusuri child process-nya untuk menemukan shell user."""
+    uname = _pid_user(pid)
+    if uname and uname != "root":
+        return uname
+    # root dropbear parent — cari child yang dimiliki user non-root
+    try:
+        children_file = f"/proc/{pid}/task/{pid}/children"
+        if os.path.exists(children_file):
+            with open(children_file) as f:
+                for cp in f.read().split():
+                    c_uname = _pid_user(int(cp))
+                    if c_uname and c_uname != "root":
+                        return c_uname
+    except Exception:
+        pass
+    return uname
+
+
 def get_online_ssh_users():
     """Gabungan `who -u` + `ss -tnp` (filter sshd/dropbear).
 
@@ -585,16 +616,12 @@ def get_online_ssh_users():
         peer = parts[4]
         host, _ = _split_hostport(peer)
         ip = _normalize_ip(host)
-        if not ip:
+        if not ip or ip in ("127.0.0.1", "::1"):
             continue
         pid = int(pm.group(1))
-        try:
-            uid = os.stat(f"/proc/{pid}").st_uid
-            uname = pwd.getpwuid(uid).pw_name
-        except Exception:
-            continue
-        if uname == "root":
-            # child sshd root = master / bukan user session; who sudah cover root user
+
+        uname = _resolve_session_user(pid)
+        if not uname:
             continue
         key = (uname, ip)
         if key in seen:
@@ -687,7 +714,10 @@ def stats_payload(handler):
         "xray_proxy_port": XRAY_PROXY_PORT,
         "ssh_port": SSH_PUBLIC_PORT,
         "ws_proxy_cfg": {"sshPort": 22},
-        "sys_settings": {"enable_bbr": "false", "udpgw_port": 7300},
+        "sys_settings": {
+            "enable_bbr": "true" if ENABLE_BBR else "false",
+            "udpgw_port": UDPGW_PORT,
+        },
     }
 
 
