@@ -2,7 +2,7 @@ FROM debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl wget unzip cmake build-essential nginx python3 procps dropbear stunnel4 openssl sudo passwd speedtest-cli \
+    ca-certificates curl wget unzip cmake build-essential nginx python3 procps dropbear stunnel4 openssl sudo passwd \
     && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL -o /tmp/xray.zip https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip \
     && unzip /tmp/xray.zip xray -d /usr/local/bin/ \
@@ -26,8 +26,6 @@ RUN wget -q \
     && test -x /usr/local/bin/badvpn-udpgw \
     && chmod +x /usr/local/bin/badvpn-udpgw \
     && rm -rf /tmp/badvpn-1.999.130 /tmp/badvpn.tar.gz
-
-# Speedtest CLI from Debian repositories (avoids external Packagecloud repository setup).
 
 RUN curl -fsSL -o /usr/local/bin/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
     && chmod +x /usr/local/bin/cloudflared

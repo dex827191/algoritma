@@ -26,7 +26,6 @@ SSH_DATA_DIR = os.environ.get("SSH_DATA_DIR", "/etc/ssh-sni")
 SSH_USERS_FILE = os.path.join(SSH_DATA_DIR, "users.json")
 XRAY_USERS_FILE = "/app/users.json"
 XRAY_CONFIG_FILE = "/app/config.json"
-DOMAIN = os.environ.get("DOMAIN", "").strip()
 
 XRAY_PROXY_PORT = int(os.environ.get("XRAY_PROXY_PORT", "8080"))
 SSH_PUBLIC_PORT = int(os.environ.get("SSH_PORT", "8081"))
@@ -287,7 +286,6 @@ tbody tr:last-child td{border-bottom:0}
     <button data-page="dashboard" class="active" onclick="navigate('dashboard')"><span class="ico">▦</span>Dashboard</button>
     <button data-page="ssh" onclick="navigate('ssh')"><span class="ico">♙</span>Buat Akun SSH</button>
     <button data-page="xray" onclick="navigate('xray')"><span class="ico">◉</span>Buat Akun Xray</button>
-    <button data-page="speedtest" onclick="navigate('speedtest')"><span class="ico">⚡</span>Speedtest Server</button>
   </nav>
   <div class="sidefoot"><div class="status"><span class="dot"></span>Public Self-Service</div></div>
 </aside>
@@ -322,7 +320,7 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 function toast(msg,type=''){const el=$('toast');el.textContent=msg;el.className='toast '+type;clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>el.classList.add('hidden'),3500)}
 async function api(url,opts={}){const r=await fetch(url,opts);let d;try{d=await r.json()}catch{throw Error('Respons server tidak valid')}if(!r.ok&&d.status!=='error')throw Error(d.message||`HTTP ${r.status}`);return d}
 function toggleNav(v){$('sidebar').classList.toggle('open',v);$('overlay').classList.toggle('show',v)}
-function navigate(page){currentPage=page;document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===page));$('topTitle').textContent=({dashboard:'Dashboard',ssh:'Buat Akun SSH',xray:'Buat Akun Xray',speedtest:'Speedtest Server'})[page];toggleNav(false);render()}
+function navigate(page){currentPage=page;document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===page));$('topTitle').textContent=({dashboard:'Dashboard',ssh:'Buat Akun SSH',xray:'Buat Akun Xray'})[page];toggleNav(false);render()}
 function card(title,body){return `<section class="card"><h3>${title}</h3>${body}</section>`}
 
 // -------------------- Detail modal --------------------
@@ -366,7 +364,6 @@ function render(){
   if(currentPage==='dashboard')renderDashboard();
   if(currentPage==='ssh')renderSSH();
   if(currentPage==='xray')renderXray();
-  if(currentPage==='speedtest')renderSpeedtest();
 }
 
 function fmtBytes(n){
@@ -413,13 +410,13 @@ function renderDashboard(){
     </div>`)}
     ${card('Domain',`
       <div class="field">
-        <label>Domain Server (DOMAIN)</label>
+        <label>Domain Server (otomatis dari Host request)</label>
         <div class="row">
-          <input readonly value="${esc(s.domain||'Belum diatur di ENV')}">
+          <input readonly value="${esc(s.domain||'Host belum terdeteksi')}">
           <button class="btn tonal" onclick="copyText(this.dataset.copy)" data-copy="${esc(s.domain||'')}">📋 Salin</button>
         </div>
       </div>
-      <p class="muted small">Domain ini dipakai untuk akun <b>Xray</b> dan <b>SSH</b>. Atur melalui environment variable <code>DOMAIN</code>.</p>
+      <p class="muted small">Domain otomatis diambil dari hostname request yang diterima panel melalui Cloudflare Tunnel atau proxy.</p>
     `)}`;
 }
 // -------------------- SSH account --------------------
@@ -453,7 +450,7 @@ async function renderSSH(){
     <div class="field"><label>Password</label><input id="sshPass" type="password" placeholder="Minimal 8 karakter" autocomplete="new-password"></div>
     <button class="btn filled" onclick="createSSH()">＋ Buat Akun</button></div>
     <div id="sshResult"></div>
-    <p class="muted small">Akun menggunakan Dropbear. Domain: <b>${esc(serverInfo?.domain||'Atur DOMAIN di ENV')}</b> · Port mux: <b>${esc(serverInfo?.ssh_port||8081)}</b>.</p>`);
+    <p class="muted small">Akun menggunakan Dropbear. Domain: <b>${esc(serverInfo?.domain||'Hostname otomatis')}</b> · Port mux: <b>${esc(serverInfo?.ssh_port||8081)}</b>.</p>`);
   $('view').innerHTML=head+form+card('Daftar Akun SSH',`<div id="sshList" class="empty">Memuat daftar akun...</div>`);
   await loadSSH();
 }
@@ -577,14 +574,6 @@ function showXray(id){
     links.filter(x=>x.p===p).forEach(x=>{text+=`[${x.t} · ${x.path} · Port ${x.port} · ${x.security}]\\n${x.link}\\n\\n`});
   });
   openDetail('Akun Xray: '+a.name,text);
-}
-
-function renderSpeedtest(){
-  $("view").innerHTML=`<section class="card"><h3>⚡ Speedtest Server</h3><p class="muted">Tes koneksi internet dari server ini melalui Speedtest CLI resmi Ookla.</p><button class="btn filled" id="runSpeed" onclick="runSpeedtest()">Mulai Speedtest</button><div id="speedResult" class="mt"></div></section>`;
-}
-async function runSpeedtest(){
-  const b=$("runSpeed"),out=$("speedResult");if(!b||!out)return;b.disabled=true;b.textContent="Menjalankan test...";out.innerHTML="<p>Test sedang berjalan. Ini bisa memakan waktu hingga 2 menit.</p>";
-  try{const d=await api('/api/speedtest',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});const r=d.result||{};out.innerHTML=`<div class="grid four mt"><div class="stat"><div class="muted">Download</div><div class="v">${esc(r.download?.bandwidth?((r.download.bandwidth*8/1e6).toFixed(2)+' Mbps'):'-')}</div></div><div class="stat"><div class="muted">Upload</div><div class="v">${esc(r.upload?.bandwidth?((r.upload.bandwidth*8/1e6).toFixed(2)+' Mbps'):'-')}</div></div><div class="stat"><div class="muted">Ping</div><div class="v">${esc(r.ping?.latency!=null?(r.ping.latency.toFixed(2)+' ms'):'-')}</div></div><div class="stat"><div class="muted">Jitter</div><div class="v">${esc(r.ping?.jitter!=null?(r.ping.jitter.toFixed(2)+' ms'):'-')}</div></div></div><p class="muted mt">Server: ${esc(r.server?.name||'-')} ${esc(r.server?.location||'')} · ISP: ${esc(r.isp||'-')}</p>`;}catch(e){out.innerHTML=`<p class="error">${esc(e.message)}</p>`;}finally{b.disabled=false;b.textContent="Mulai Speedtest";}
 }
 
 // -------------------- Misc --------------------
@@ -848,10 +837,16 @@ def get_online_ssh_users():
 # ---------------------------------------------------------------------------
 
 def server_domain(handler):
-    if DOMAIN:
-        return DOMAIN
-    host = handler.headers.get("Host", "").split(":", 1)[0].strip()
-    if host and host not in ("localhost", "127.0.0.1") and not host.endswith(".railway.app"):
+    # Auto-detect hostname from incoming request (Cloudflare Tunnel/proxy Host headers).
+    host = (handler.headers.get("Host") or handler.headers.get("X-Forwarded-Host")
+            or handler.headers.get("CF-Connecting-Host") or "").strip()
+    # Strip port safely, including IPv6 bracket notation.
+    if host.startswith("[") and "]" in host:
+        host = host[1:host.index("]")]
+    elif host.count(":") == 1:
+        host = host.rsplit(":", 1)[0]
+    host = host.strip().rstrip(".")
+    if host and host.lower() not in ("localhost", "127.0.0.1"):
         return host
     return ""
 
@@ -1117,8 +1112,6 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path in ("/", "/index.html"):
                 self.send_html(INDEX_HTML)
-            elif path == "/api/speedtest/status":
-                self.send_json({"status":"success","available":(shutil.which("speedtest") is not None or shutil.which("speedtest-cli") is not None)})
             elif path == "/api/list":
                 self.send_json({"status": "success", "users": list_ssh_users()})
             elif path == "/api/xray/list":
@@ -1147,34 +1140,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             data = self.read_body()
 
-            if path == "/api/speedtest":
-                official = shutil.which("speedtest")
-                fallback = shutil.which("speedtest-cli")
-                if official:
-                    proc = subprocess.run([official, "--accept-license", "--accept-gdpr", "--format=json"],
-                        capture_output=True, text=True, timeout=120)
-                    if proc.returncode != 0:
-                        raise ValueError((proc.stderr or proc.stdout or "Speedtest gagal.")[-1000:])
-                    result = json.loads(proc.stdout)
-                elif fallback:
-                    proc = subprocess.run([fallback, "--json"], capture_output=True, text=True, timeout=120)
-                    if proc.returncode != 0:
-                        raise ValueError((proc.stderr or proc.stdout or "Speedtest gagal.")[-1000:])
-                    raw = json.loads(proc.stdout)
-                    # Normalize speedtest-cli (Python) output to the UI's Ookla-like schema.
-                    result = {
-                        "download": {"bandwidth": int(raw.get("download", 0) / 8)},
-                        "upload": {"bandwidth": int(raw.get("upload", 0) / 8)},
-                        "ping": {"latency": raw.get("ping"), "jitter": None},
-                        "server": {"name": raw.get("server", {}).get("name", "-"),
-                                   "location": raw.get("server", {}).get("country", "")},
-                        "isp": raw.get("client", {}).get("isp", "-"),
-                    }
-                else:
-                    raise ValueError("Speedtest CLI belum terpasang di server.")
-                self.send_json({"status":"success","result":result})
-
-            elif path == "/api/add":
+            if path == "/api/add":
                 user = str(data.get("user", "")).strip().lower()
                 password = str(data.get("pass", ""))
                 account = add_ssh_user(user, password)
@@ -1183,7 +1149,7 @@ class Handler(BaseHTTPRequestHandler):
                     f" Username   : {account['username']}\n"
                     f" Password   : {account['password']}\n"
                     f" Dibuat     : {account['created_at']}\n"
-                    f" Domain     : {DOMAIN}\n"
+                    f" Domain     : {server_domain(self)}\n"
                     "==========================="
                 )
                 self.send_json({"status": "success", "message": msg, "user": account})
