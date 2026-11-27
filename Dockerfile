@@ -1,8 +1,8 @@
-FROM ubuntu:24.04
+FROM debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /app
 
-# ---- Base dependencies (termasuk build tools & library yang dibutuhkan BadVPN) ----
+# ---- Base dependencies (build tools + library yang dibutuhkan BadVPN) ----
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl wget unzip nginx python3 procps \
     dropbear-bin stunnel4 openssl sudo passwd \
@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev libnspr4-dev zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# ---- Build badvpn udpgw ----
+# ---- Build badvpn udpgw (fix: binary ada di build/udpgw/) ----
 RUN wget -q https://github.com/ambrop72/badvpn/archive/refs/tags/1.999.130.tar.gz -O /tmp/badvpn.tar.gz \
  && tar -xzf /tmp/badvpn.tar.gz -C /tmp \
  && cd /tmp/badvpn-1.999.130 \
@@ -21,8 +21,9 @@ RUN wget -q https://github.com/ambrop72/badvpn/archive/refs/tags/1.999.130.tar.g
       -DBUILD_UDPGW=1 \
       -DCMAKE_INSTALL_PREFIX=/usr/local \
  && cmake --build . --target badvpn-udpgw -j"$(nproc)" \
- && cp badvpn-udpgw /usr/local/bin/ \
- && cd / && rm -rf /tmp/badvpn-1.999.130 /tmp/badvpn.tar.gz
+ && find /tmp/badvpn-1.999.130/build -type f -name badvpn-udpgw -exec cp {} /usr/local/bin/ \; \
+ && chmod +x /usr/local/bin/badvpn-udpgw \
+ && rm -rf /tmp/badvpn-1.999.130 /tmp/badvpn.tar.gz
 
 # ---- Xray ----
 RUN curl -fsSL -o /tmp/xray.zip https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip \
@@ -37,5 +38,5 @@ COPY . /app/
 RUN chmod +x /app/start.sh \
  && mkdir -p /var/run/dropbear /var/run/stunnel /etc/dropbear /etc/stunnel /etc/ssh-sni
 
-EXPOSE 8080 8081 2053
+EXPOSE 8080 8081
 CMD ["/app/start.sh"]
