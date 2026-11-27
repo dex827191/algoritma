@@ -20,7 +20,9 @@ from urllib.parse import urlparse
 # Configuration
 # ---------------------------------------------------------------------------
 
-HOST = os.environ.get("APP_HOST", "127.0.0.1")
+
+# Sesudah (opsional — sudah ditangani start.sh)
+HOST = os.environ.get("APP_HOST", "0.0.0.0")
 PORT = int(os.environ.get("APP_PORT", "2053"))
 SSH_DATA_DIR = os.environ.get("SSH_DATA_DIR", "/etc/ssh-sni")
 SSH_USERS_FILE = os.path.join(SSH_DATA_DIR, "users.json")
