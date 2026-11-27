@@ -1,68 +1,49 @@
-# Nginx Proxy App + SSH API
+# SSH + Xray gateway (dual SSH mode)
 
-Gabungan panel web (HTML tertanam langsung di `app.py`), Xray, dan SSH Dropbear.
+## Routing
+- HTTP origin utama: `0.0.0.0:8080` (Nginx).
+- SSH WebSocket: `https://DOMAIN/ssh` atau `wss://DOMAIN/ssh` -> Nginx -> `ws-proxy.py:8880` -> Dropbear `127.0.0.1:22`.
+- Xray: seluruh path dan inbound tetap mengikuti `config.json` dan `nginx.conf` semula.
+- SSH SSL/TLS: koneksi TCP mentah ke `mux.py:8881`; mux mengenali TLS record dan meneruskannya ke stunnel `127.0.0.1:2443` -> Dropbear `127.0.0.1:22`.
+- Mux juga dapat meneruskan koneksi TCP non-TLS ke ws-proxy, tetapi mode WebSocket yang direkomendasikan untuk Cloudflare HTTP origin adalah `/ssh` melalui Nginx.
+- `ws-xray.py` tetap khusus jalur Xray TCP dan tidak dipakai untuk SSH.
 
-## Jalur koneksi
-- Port HTTP origin `8080` dijalankan oleh Nginx dan dipakai Cloudflare Tunnel (`http://localhost:8080`).
-- Path `/ssh` diteruskan Nginx ke `ws-proxy.py` pada port internal `8880`, lalu ke Dropbear `127.0.0.1:22`.
-- Semua path Xray dan panel/API diteruskan melalui Nginx ke backend masing-masing.
-- Mux TCP mentah tetap opsional pada port internal `8881` (atur `MUX_PORT`); Mux bukan origin HTTP Cloudflare.
-- Registry koneksi WebSocket SSH ditulis ke `/tmp/ssh_conns.json` dan jumlahnya ditampilkan pada endpoint statistik.
+## Cloudflare Tunnel
+Untuk hostname HTTP/HTTPS yang melayani panel, Xray WS, dan SSH WebSocket, set service ke `http://localhost:8080`. Tidak perlu hostname baru untuk `/ssh`.
 
-## API SSH
-Semua API memakai JSON:
-- `GET /api/ssh/list`
-- `POST /api/ssh/add` body `{"user":"nama","pass":"password"}`
-- `POST /api/ssh/delete` body `{"user":"nama"}`
+**Penting:** SSH SSL/TLS melalui mux adalah TCP mentah, bukan HTTP. Cloudflare Tunnel service `http://localhost:8080` tidak dapat meneruskan koneksi TCP SSL ke mux hanya berdasarkan path. Agar SSH SSL dapat diakses dari luar, platform harus menyediakan TCP port forwarding/proxy ke container port `8881`, atau gunakan Cloudflare Tunnel TCP dengan klien yang mendukung `cloudflared access tcp`. Jangan arahkan hostname HTTP yang sama ke mux.
 
-Alias kompatibilitas lama `/api/list`, `/api/add`, `/api/delete` juga tersedia.
-Pembuatan user memakai `useradd` + `chpasswd`; penghapusan memakai `userdel -r`.
-Data akun tersimpan di `/etc/ssh-sni/users.json`.
-
-## API Xray
-- `GET /api/xray/list`
-- `POST /api/xray/add` body `{"name":"nama"}`
-- `POST /api/xray/delete` body `{"id":"uuid"}`
+## Port internal
+- `22`: Dropbear (loopback)
+- `2443`: stunnel (loopback)
+- `8880`: ws-proxy (loopback)
+- `8881`: mux TCP (listen semua interface)
+- `8080`: Nginx HTTP origin (listen semua interface)
+- `18080-18088`: Xray (loopback)
+- `8882`: ws-xray helper (listen semua interface)
 
 ## Environment
-- `PORT`: tidak dipakai untuk memindahkan HTTP origin; Nginx mendengarkan port 8080.
-- `MUX_PORT`: port Mux TCP mentah (default 8881), terpisah dari HTTP origin.
-- `DOMAIN`: domain untuk link Xray (opsional)
-- `CF_TOKEN`: Cloudflare Tunnel token (opsional)
+- `CF_TOKEN`: token Cloudflare Tunnel (opsional)
+- `DOMAIN`: domain untuk tautan panel
+- `MAIN_MUX_PORT`: port mux, default `8881`
+- `SSL_TARGET_HOST` / `SSL_TARGET_PORT`: default `127.0.0.1:2443`
+- `WS_TARGET_HOST` / `WS_TARGET_PORT`: default `127.0.0.1:8880`
 
-Build dan jalankan dengan Docker. Disarankan menambahkan autentikasi/API token dan pembatasan akses sebelum panel diekspos ke internet publik; API SSH saat ini merupakan self-service tanpa autentikasi.
-
-## Optimasi kernel, banner, dan UDP gateway
-- `ENABLE_BBR=true` mengaktifkan BBR; nilai selain `true` memakai cubic. Perubahan sysctl dicoba saat container mulai. Pada container tanpa izin kernel yang sesuai, pengaturan dapat ditolak dan dilewati.
-- `CUSTOM_BANNER` (opsional) mengganti banner default. Banner ditulis ke `/etc/dropbear/banner`. Dropbear menampilkan isi file sebagai teks terminal; markup HTML tidak dirender sebagai HTML.
-- `NET_BIN` (default `/usr/local/bin/badvpn-udpgw`) menunjuk binary `badvpn-udpgw`. `UDPGW_PORT` default `7300`, `UDPGW_MAX_CLIENTS` default `250`. Worker hanya dijalankan jika binary tersedia dan executable. Binary badvpn-udpgw tidak dibundel di ZIP ini.
-
-
-## SSH WebSocket (WSS)
-- Path SSH WebSocket: `/ssh` (URL: `wss://DOMAIN/ssh`, port 443).
-- Pada Cloudflare Zero Trust Tunnel, buat Public Hostname dengan service `http://localhost:8080` (Nginx). Jangan arahkan hostname HTTP/HTTPS ke port mux `8881`.
-- Nginx meneruskan `/ssh` ke `ws-proxy.py` pada port internal `8880`; `/` tetap ke panel, sedangkan path Xray diteruskan sesuai `nginx.conf`.
-- Mux `8881` tetap merupakan splitter TCP mentah untuk trafik TLS/non-TLS; ia bukan endpoint HTTPS untuk panel dan WSS berbasis path.
-- Username SSH yang diketik dengan huruf besar otomatis dinormalisasi ke huruf kecil karena akun sistem Linux dibuat lowercase.
-
-
-## Payload SSH WebSocket (legacy GET / + split injection)
-
-The gateway accepts WebSocket upgrade requests on both `/ssh` and `/`.
-For `/`, Nginx routes requests with `Upgrade: websocket` to the SSH WS gateway;
-ordinary browser requests without WebSocket Upgrade continue to the panel.
-
-Example DarkTunnel payload supported:
-
-```text
-GET / HTTP/1.1[crlf]Host: edu.ruangguru.com[crlf]Upgrade: websocket[crlf][crlf]PATCH [path] HTTP/1.1[crlf]Host: [host][crlf]Upgrade: websocket[crlf][crlf][split]HTTP/ 200 OK[crlf][crlf]
+## Validasi
+Di dalam container:
+```bash
+nginx -t -c /app/nginx.conf
+python3 -m py_compile /app/mux.py /app/ws-proxy.py /app/ws-xray.py /app/app.py
+ss -lntp
 ```
-
-The first GET performs the WebSocket upgrade. After upgrade, the gateway discards
-the injected HTTP/PATCH preamble until it detects the SSH identification prefix
-`SSH-`, then forwards the SSH stream to Dropbear. The `[split]` marker is a
-client-side payload separator; it is not an HTTP response generated by Nginx.
-For the first test, use a valid WebSocket host/domain and a path that is accepted
-by the client/server setup. The fronting Host `edu.ruangguru.com` is not required
-to be a real origin for this gateway and may be rejected by Cloudflare policies;
-using the user's own Cloudflare hostname is the reliable option.
+Handshake WebSocket untuk tes lokal harus menggunakan key valid:
+```bash
+curl -i -N --http1.1 \
+  -H 'Host: DOMAIN' \
+  -H 'Connection: Upgrade' \
+  -H 'Upgrade: websocket' \
+  -H 'Sec-WebSocket-Version: 13' \
+  -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+  http://127.0.0.1:8080/ssh
+```
+Tes handshake hanya membuktikan jalur HTTP Upgrade, bukan autentikasi SSH lengkap.

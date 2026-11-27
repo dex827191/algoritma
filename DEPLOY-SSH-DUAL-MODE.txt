@@ -1,0 +1,16 @@
+DEPLOY SSH DUAL MODE
+====================
+1. Build ulang image dari ZIP ini dan deploy ulang container.
+2. Cloudflare Tunnel HTTP service tetap http://localhost:8080.
+3. SSH WebSocket: gunakan wss://DOMAIN/ssh pada port HTTPS publik (umumnya 443).
+4. SSH SSL/TLS: expose TCP container port 8881 melalui fitur TCP proxy/port mapping platform.
+   Mux akan mendeteksi TLS lalu meneruskannya ke stunnel:2443 dan Dropbear:22.
+5. Xray tidak dipindahkan: nginx.conf tetap meneruskan path Xray ke inbound 18080-18088.
+6. Jangan arahkan service HTTP Cloudflare ke port 8881. Port 8881 bukan HTTP origin.
+
+Pemeriksaan: nginx -t -c /app/nginx.conf
+Pemeriksaan Python: python3 -m py_compile /app/*.py
+
+Catatan: Cloudflare Tunnel HTTP yang menuju localhost:8080 hanya membawa HTTP/HTTPS/WebSocket.
+Mode SSH SSL raw TCP membutuhkan TCP ingress tersendiri; tidak bisa otomatis dipilih lewat path /ssh
+pada satu HTTP origin.

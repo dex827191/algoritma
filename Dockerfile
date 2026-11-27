@@ -23,5 +23,5 @@ COPY app.py config.json nginx.conf mux.py ws-proxy.py ws-xray.py start.sh /app/
 RUN chmod +x /app/start.sh /app/mux.py /app/ws-proxy.py /app/ws-xray.py \
     && printf '{}\n' > /etc/ssh-sni/users.json
 
-EXPOSE 8080
+EXPOSE 8080 8881
 CMD ["/app/start.sh"]

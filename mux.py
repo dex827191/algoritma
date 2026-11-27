@@ -25,10 +25,8 @@ LISTEN_PORT = int(os.environ.get("MAIN_MUX_PORT", os.environ.get("PORT", "443"))
 SSL_TARGET_HOST = os.environ.get("SSL_TARGET_HOST", "127.0.0.1")
 SSL_TARGET_PORT = int(os.environ.get("SSL_TARGET_PORT", "2443"))  # stunnel internal
 
-WS_TARGET_HOST = os.environ.get(
-    "WS_MUX_TARGET_HOST", os.environ.get("WS_TARGET_HOST", "127.0.0.1")
-)
-WS_TARGET_PORT = int(os.environ.get("WS_MUX_TARGET_PORT", "8880"))  # ws-proxy internal
+WS_TARGET_HOST = os.environ.get("WS_TARGET_HOST", "127.0.0.1")
+WS_TARGET_PORT = int(os.environ.get("WS_TARGET_PORT", "8880"))  # ws-proxy internal
 
 TLS_HANDSHAKE_BYTE = 0x16
 

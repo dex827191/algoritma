@@ -105,9 +105,10 @@ WS_XRAY_PORT=8882 NGINX_HOST=127.0.0.1 NGINX_PORT=8080 \
   python3 /app/ws-xray.py &
 
 # =================================================================
-# 8) mux — pemisah TCP mentah khusus SSH (0.0.0.0:8881)
+# 8) mux — pintu masuk TCP mentah khusus SSH (0.0.0.0:8881)
 #    TLS  -> stunnel:2443 -> dropbear:22
 #    non-TLS -> ws-proxy:8880 -> dropbear:22
+#    Port ini terpisah dari HTTP origin Cloudflare :8080.
 # =================================================================
 echo "[*] Starting mux on 0.0.0.0:8881 (SSH raw TCP entry)"
 MAIN_MUX_PORT=8881 \
@@ -130,7 +131,8 @@ sleep 2
 
 # =================================================================
 # 10) Nginx — HTTP entry utama (0.0.0.0:8080)
-#     Cloudflare Tunnel diarahkan ke sini.
+#     Cloudflare Tunnel diarahkan ke sini. /ssh -> ws-proxy; path Xray tetap.
+#     SSH SSL tidak lewat Nginx; gunakan TCP ingress ke mux:8881.
 # =================================================================
 echo "[*] Starting nginx on 0.0.0.0:8080 (main HTTP entry)"
 exec nginx -c /app/nginx.conf -g 'daemon off;'
