@@ -2,7 +2,7 @@ FROM debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /app
 
-# ---- Base dependencies (build tools + library yang dibutuhkan BadVPN) ----
+# ---- Base dependencies (build tools + library untuk BadVPN) ----
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl wget unzip nginx python3 procps \
     dropbear-bin stunnel4 openssl sudo passwd \
@@ -34,9 +34,14 @@ RUN curl -fsSL -o /tmp/xray.zip https://github.com/XTLS/Xray-core/releases/lates
 RUN curl -fsSL -o /usr/local/bin/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
  && chmod +x /usr/local/bin/cloudflared
 
+# ---- App files ----
 COPY . /app/
 RUN chmod +x /app/start.sh \
  && mkdir -p /var/run/dropbear /var/run/stunnel /etc/dropbear /etc/stunnel /etc/ssh-sni
 
-EXPOSE 8080 8081 2053
+# ---- Expose HANYA port publik ----
+# 8080 = proxy_wrapper.py (gateway: UI panel + Xray paths)
+# 8081 = mux.py (SSH TCP + TLS publik)
+EXPOSE 8080 8081
+
 CMD ["/app/start.sh"]
