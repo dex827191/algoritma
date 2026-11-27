@@ -1,115 +1,68 @@
-#!/bin/bash
+#!/bin/sh
 set -eu
 
-BANNER_FILE="${BANNER_FILE:-/etc/dropbear/banner}"
-UDPGW_PORT="${UDPGW_PORT:-7300}"
-UDPGW_MAX_CLIENTS="${UDPGW_MAX_CLIENTS:-250}"
+# UI + Xray reverse proxy: public/local port 8080.
+nginx -c /app/nginx.conf
 
-mkdir -p /etc/dropbear /etc/stunnel /etc/ssh-sni
-if [ ! -f /etc/dropbear/dropbear_ed25519_host_key ]; then
-  dropbearkey -t ed25519 -f /etc/dropbear/dropbear_ed25519_host_key >/dev/null
+# Xray is owned only by proxy_wrapper.py; SSH never passes through it.
+(
+  while true; do
+    xray run -c /app/config.json
+    echo '[xray] process stopped; restarting in 1s'
+    sleep 1
+  done
+) &
+XRAY_PID=$!
+
+# Existing web account generator/API page.
+python3 /app/app.py &
+APP_PID=$!
+
+# SSH backend: Dropbear -> WebSocket proxy -> TCP mux on 8081.
+mkdir -p /etc/dropbear /etc/stunnel /etc/ssh-sni /var/run/stunnel
+cat > /etc/dropbear/banner <<'BANNER'
+=================================================
+             SSH SERVER - DROPBEAR
+=================================================
+BANNER
+SSH_USER="${SSH_USER:-dd}"
+SSH_PASSWORD="${SSH_PASSWORD:-dd}"
+if ! id "$SSH_USER" >/dev/null 2>&1; then
+  useradd -m -s /bin/bash "$SSH_USER"
 fi
-[ -f /etc/ssh-sni/users.json ] || printf '{}\n' > /etc/ssh-sni/users.json
+printf '%s:%s\n' "$SSH_USER" "$SSH_PASSWORD" | chpasswd
+/usr/sbin/dropbear -p 127.0.0.1:22 -b /etc/dropbear/banner -W 65536
 
-# =================================================================
-# 🚀 Kernel tweaks
-# =================================================================
-sysctl -w net.ipv4.tcp_tw_reuse=1                 2>/dev/null || true
-sysctl -w net.ipv4.tcp_fin_timeout=10             2>/dev/null || true
-sysctl -w net.core.default_qdisc=fq               2>/dev/null || true
-if [ "${ENABLE_BBR:-false}" = "true" ]; then
-  sysctl -w net.ipv4.tcp_congestion_control=bbr   2>/dev/null || true
-else
-  sysctl -w net.ipv4.tcp_congestion_control=cubic 2>/dev/null || true
+# TLS SSH backend, selected by mux.py when the first byte is TLS handshake (0x16).
+if [ ! -s /etc/stunnel/stunnel.pem ]; then
+  openssl req -new -newkey rsa:2048 -days 365 -nodes -x509 \
+    -subj '/C=ID/ST=Indonesia/L=Server/O=SSH/CN=localhost' \
+    -keyout /etc/stunnel/stunnel.pem -out /etc/stunnel/stunnel.pem
 fi
-sysctl -w net.ipv4.tcp_rmem="4096 8388608 16777216" 2>/dev/null || true
-sysctl -w net.ipv4.tcp_wmem="4096 8388608 16777216" 2>/dev/null || true
-sysctl -w net.core.rmem_max=16777216              2>/dev/null || true
-sysctl -w net.core.wmem_max=16777216              2>/dev/null || true
-sysctl -w net.core.netdev_max_backlog=50000       2>/dev/null || true
-sysctl -w net.ipv4.tcp_max_syn_backlog=8192       2>/dev/null || true
+cat > /etc/stunnel/stunnel.conf <<'STUNNEL'
+pid = /var/run/stunnel.pid
+foreground = yes
+[ssh-ssl]
+accept = 127.0.0.1:2443
+connect = 127.0.0.1:22
+cert = /etc/stunnel/stunnel.pem
+STUNNEL
+stunnel /etc/stunnel/stunnel.conf &
 
-# =================================================================
-# 🎨 Banner
-# =================================================================
-if [ -n "${CUSTOM_BANNER:-}" ]; then
-  printf '%b\n' "$CUSTOM_BANNER" > "$BANNER_FILE"
-else
-  cat <<'EOF' > "$BANNER_FILE"
-<p style="text-align:center;"><b>
-    <font color="#800080">─── SERVER PREMIUM ───</font><br>
-    <font color="#8A2BE2">! TERM OF SERVICE !</font><br>
-    <font color="#9370DB">NO MULTI LOGIN / NO TORRENT</font><br>
-    <font color="#8A2BE2">NO SPAM, NO DDOS, NO HACKING</font><br></b>
-</p>
-EOF
-fi
-
-# =================================================================
-# 1) Dropbear — internal SSH (127.0.0.1:22)
-# =================================================================
-echo "[*] Starting dropbear on 127.0.0.1:22"
-/usr/sbin/dropbear -p 127.0.0.1:22 -b "$BANNER_FILE" -W 65536
-
-# =================================================================
-# 2) Net worker (badvpn udpgw) — optional
-# =================================================================
-if [ -x /usr/local/bin/badvpn-udpgw ]; then
-  ( exec -a "cache-worker" /usr/local/bin/badvpn-udpgw \
-      --listen-addr "0.0.0.0:${UDPGW_PORT}" \
-      --max-clients "${UDPGW_MAX_CLIENTS}" \
-      --max-connections-for-client 50 ) >/dev/null 2>&1 &
-fi
-
-# =================================================================
-# SSH hanya melalui WebSocket (tanpa stunnel dan tanpa mux/TCP proxy)
-# =================================================================
-# =================================================================
-# 4) ws-proxy — WebSocket <-> SSH (127.0.0.1:8880 -> :22)
-# =================================================================
-echo "[*] Starting ws-proxy on 127.0.0.1:8880"
 WS_PORT=8880 WS_TARGET_HOST=127.0.0.1 WS_TARGET_PORT=22 \
   python3 /app/ws-proxy.py &
 
-# =================================================================
-# 5) Xray inbounds (127.0.0.1:18080-18088)
-# =================================================================
-echo "[*] Starting Xray (inbounds 18080-18088)"
-( while true; do xray run -c /app/config.json; sleep 1; done ) &
+# SSH mux has its own listener; this does not change proxy_wrapper.py's Xray port.
+MAIN_MUX_PORT=8081 \
+SSL_TARGET_HOST=127.0.0.1 SSL_TARGET_PORT=2443 \
+WS_MUX_TARGET_HOST=127.0.0.1 WS_MUX_TARGET_PORT=8880 \
+  python3 /app/mux.py &
 
-# =================================================================
-# 6) Panel API (0.0.0.0:2053)
-# =================================================================
-echo "[*] Starting panel API on 0.0.0.0:2053"
-python3 /app/app.py &
-
-# =================================================================
-# 7) ws-xray — helper Xray TCP (0.0.0.0:8882 -> nginx:8080)
-#    (ini pengganti proxy_wrapper.py; HANYA untuk Xray)
-# =================================================================
-echo "[*] Starting ws-xray on 0.0.0.0:8882 -> nginx:8080"
-WS_XRAY_PORT=8882 NGINX_HOST=127.0.0.1 NGINX_PORT=8080 \
-  python3 /app/ws-xray.py &
-
-# Tidak menjalankan mux.py atau stunnel: Railway deployment ini memakai SSH WebSocket saja.
-
-# =================================================================
-# 9) Cloudflare Tunnel (jika token tersedia)
-# =================================================================
+# One Cloudflare Tunnel can publish two hostnames to two different local services.
 if [ -n "${CF_TOKEN:-}" ]; then
-  echo "[*] Starting Cloudflare Tunnel (origin: http://localhost:8080)"
   cloudflared tunnel --no-autoupdate run --token "$CF_TOKEN" &
-else
-  echo "[!] CF_TOKEN tidak diset — Cloudflare Tunnel dilewati."
 fi
 
-# Beri jeda singkat agar backend bind dengan benar
-sleep 2
-
-# =================================================================
-# 10) Nginx — HTTP entry utama (0.0.0.0:8080)
-#     Cloudflare Tunnel diarahkan ke sini. /ssh -> ws-proxy; path Xray tetap.
-#     SSH hanya melalui WebSocket /ssh; tidak ada listener TCP SSL/mux.
-# =================================================================
-echo "[*] Starting nginx on 0.0.0.0:8080 (main HTTP entry)"
-exec nginx -c /app/nginx.conf -g 'daemon off;'
+trap 'kill "$XRAY_PID" "$APP_PID" 2>/dev/null || true; exit 0' INT TERM
+# Keep the Xray/UI ingress process in foreground.
+exec python3 /app/proxy_wrapper.py
