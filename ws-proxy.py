@@ -1,166 +1,165 @@
 #!/usr/bin/env python3
-"""
-WebSocket <-> SSH proxy.
-
-Menerima koneksi HTTP/WebSocket di suatu port, memvalidasi handshake
-WebSocket (atau membiarkan permintaan HTTP biasa lewat sebagai "payload"
-gaya bug-host / CONNECT untuk kompatibilitas dengan client HTTP Injector,
-NPV Tunnel, dsb), lalu meneruskan (relay) semua data mentah ke server
-SSH lokal (127.0.0.1:22).
-
-Tidak butuh dependency luar (hanya modul standar Python), supaya build
-Docker tetap ringan.
-"""
-
+"""RFC6455 WebSocket <-> raw SSH TCP bridge (stdlib only)."""
 import asyncio
 import base64
 import hashlib
 import logging
 import os
-import signal
-import sys
+import struct
 
-WS_MAGIC = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+HOST = os.getenv('WS_LISTEN_HOST', '127.0.0.1')
+PORT = int(os.getenv('WS_PORT', '8880'))
+TARGET_HOST = os.getenv('WS_TARGET_HOST', '127.0.0.1')
+TARGET_PORT = int(os.getenv('WS_TARGET_PORT', '22'))
+MAGIC = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
+MAX_FRAME = int(os.getenv('WS_MAX_FRAME', str(2 * 1024 * 1024)))
+logging.basicConfig(level=logging.INFO, format='[ws-proxy] %(asctime)s %(levelname)s %(message)s')
+log = logging.getLogger('ws-proxy')
 
-LISTEN_HOST = "0.0.0.0"
-LISTEN_PORT = int(os.environ.get("WS_PORT", "8880"))
-TARGET_HOST = os.environ.get("WS_TARGET_HOST", "127.0.0.1")
-TARGET_PORT = int(os.environ.get("WS_TARGET_PORT", "22"))
-# Respons default yang dikirim untuk permintaan HTTP biasa (mode "payload"),
-# supaya kompatibel dengan aplikasi client yang mengirim custom HTTP request
-# sebelum benar-benar melakukan upgrade ke WebSocket.
-DEFAULT_RESPONSE = os.environ.get(
-    "WS_RESPONSE",
-    "HTTP/1.1 101 Switching Protocols\r\n\r\n",
-)
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="[ws-proxy] %(asctime)s %(levelname)s %(message)s",
-)
-log = logging.getLogger("ws-proxy")
-
-
-async def read_http_headers(reader: asyncio.StreamReader) -> bytes:
-    """Baca header HTTP request sampai menemukan CRLFCRLF."""
-    data = b""
-    while b"\r\n\r\n" not in data:
-        chunk = await reader.read(1)
-        if not chunk:
-            break
-        data += chunk
-        if len(data) > 65536:
-            break
+async def read_headers(reader):
+    data = await reader.readuntil(b'\r\n\r\n')
+    if len(data) > 65536:
+        raise ValueError('HTTP headers too large')
     return data
 
-
-def parse_headers(raw: bytes) -> dict:
+def parse_headers(raw):
+    lines = raw.decode('latin1').split('\r\n')
+    request = lines[0].split()
     headers = {}
-    try:
-        lines = raw.decode(errors="ignore").split("\r\n")
-        for line in lines[1:]:
-            if ":" in line:
-                k, v = line.split(":", 1)
-                headers[k.strip().lower()] = v.strip()
-    except Exception:
-        pass
-    return headers
+    for line in lines[1:]:
+        if ':' in line:
+            k, v = line.split(':', 1)
+            headers[k.strip().lower()] = v.strip()
+    return request, headers
 
+async def send_http_error(writer, status, message):
+    body = (message + '\n').encode()
+    writer.write(f'HTTP/1.1 {status}\r\nConnection: close\r\nContent-Length: {len(body)}\r\n\r\n'.encode() + body)
+    await writer.drain()
 
-def make_accept_key(ws_key: str) -> str:
-    sha1 = hashlib.sha1((ws_key + WS_MAGIC).encode()).digest()
-    return base64.b64encode(sha1).decode()
+async def read_frame(reader):
+    head = await reader.readexactly(2)
+    fin = bool(head[0] & 0x80)
+    opcode = head[0] & 0x0f
+    masked = bool(head[1] & 0x80)
+    length = head[1] & 0x7f
+    if length == 126:
+        length = struct.unpack('!H', await reader.readexactly(2))[0]
+    elif length == 127:
+        length = struct.unpack('!Q', await reader.readexactly(8))[0]
+    if length > MAX_FRAME:
+        raise ValueError('WebSocket frame too large')
+    mask = await reader.readexactly(4) if masked else b''
+    payload = await reader.readexactly(length) if length else b''
+    if masked:
+        payload = bytes(b ^ mask[i & 3] for i, b in enumerate(payload))
+    return fin, opcode, payload
 
+async def send_frame(writer, opcode, payload=b''):
+    n = len(payload)
+    first = bytes([0x80 | opcode])
+    if n < 126:
+        header = first + bytes([n])
+    elif n < 65536:
+        header = first + bytes([126]) + struct.pack('!H', n)
+    else:
+        header = first + bytes([127]) + struct.pack('!Q', n)
+    writer.write(header + payload)
+    await writer.drain()
 
-async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
-    peer = writer.get_extra_info("peername")
-    log.info("Koneksi masuk dari %s", peer)
-
-    try:
-        raw_headers = await read_http_headers(reader)
-        headers = parse_headers(raw_headers)
-
-        is_ws_upgrade = headers.get("upgrade", "").lower() == "websocket"
-
-        if is_ws_upgrade and "sec-websocket-key" in headers:
-            accept_key = make_accept_key(headers["sec-websocket-key"])
-            response = (
-                "HTTP/1.1 101 Switching Protocols\r\n"
-                "Upgrade: websocket\r\n"
-                "Connection: Upgrade\r\n"
-                f"Sec-WebSocket-Accept: {accept_key}\r\n"
-            )
-            if "sec-websocket-protocol" in headers:
-                response += f"Sec-WebSocket-Protocol: {headers['sec-websocket-protocol']}\r\n"
-            response += "\r\n"
-            writer.write(response.encode())
+async def ws_to_ssh(reader, ssh_writer, ws_writer):
+    fragmented = bytearray()
+    fragment_opcode = None
+    while True:
+        fin, opcode, payload = await read_frame(reader)
+        if opcode == 0x8:
+            try: await send_frame(ws_writer, 0x8, payload[:125])
+            except Exception: pass
+            break
+        if opcode == 0x9:
+            await send_frame(ws_writer, 0xA, payload)
+            continue
+        if opcode == 0xA:
+            continue
+        if opcode in (0x1, 0x2):
+            if fragment_opcode is not None:
+                raise ValueError('unexpected new data frame during fragmentation')
+            if fin:
+                if opcode == 0x2:
+                    ssh_writer.write(payload); await ssh_writer.drain()
+                # Text frames are ignored: SSH is a binary byte stream.
+            else:
+                fragment_opcode = opcode
+                fragmented.extend(payload)
+        elif opcode == 0x0:
+            if fragment_opcode is None:
+                raise ValueError('unexpected continuation frame')
+            fragmented.extend(payload)
+            if len(fragmented) > MAX_FRAME:
+                raise ValueError('fragmented message too large')
+            if fin:
+                if fragment_opcode == 0x2:
+                    ssh_writer.write(fragmented); await ssh_writer.drain()
+                fragmented.clear(); fragment_opcode = None
         else:
-            # Mode kompatibilitas: request HTTP biasa (bukan upgrade WS resmi),
-            # tetap balas 101 supaya client tunneling non-standar tetap jalan.
-            writer.write(DEFAULT_RESPONSE.encode())
+            raise ValueError('unsupported WebSocket opcode')
 
-        await writer.drain()
+async def ssh_to_ws(ssh_reader, ws_writer):
+    while True:
+        data = await ssh_reader.read(32768)
+        if not data:
+            break
+        await send_frame(ws_writer, 0x2, data)
+    try: await send_frame(ws_writer, 0x8, struct.pack('!H', 1000))
+    except Exception: pass
 
-        # Sambungkan ke SSH lokal
+async def handle(reader, writer):
+    peer = writer.get_extra_info('peername')
+    ssh_writer = None
+    try:
+        raw = await read_headers(reader)
+        request, h = parse_headers(raw)
+        if len(request) < 3 or request[0] != 'GET':
+            await send_http_error(writer, '400 Bad Request', 'WebSocket GET required'); return
+        key = h.get('sec-websocket-key', '')
         try:
-            target_reader, target_writer = await asyncio.open_connection(
-                TARGET_HOST, TARGET_PORT
-            )
-        except Exception as e:
-            log.error("Gagal konek ke target %s:%s -> %s", TARGET_HOST, TARGET_PORT, e)
-            writer.close()
-            return
-
-        async def pipe(src: asyncio.StreamReader, dst: asyncio.StreamWriter):
-            try:
-                while True:
-                    data = await src.read(65536)
-                    if not data:
-                        break
-                    dst.write(data)
-                    await dst.drain()
-            except (ConnectionResetError, asyncio.IncompleteReadError):
-                pass
-            except Exception as e:
-                log.debug("pipe error: %s", e)
-            finally:
-                try:
-                    dst.close()
-                except Exception:
-                    pass
-
-        await asyncio.gather(
-            pipe(reader, target_writer),
-            pipe(target_reader, writer),
-        )
-
-    except Exception as e:
-        log.error("Error menangani klien %s: %s", peer, e)
-    finally:
-        try:
-            writer.close()
+            decoded = base64.b64decode(key, validate=True)
         except Exception:
-            pass
-        log.info("Koneksi %s ditutup", peer)
-
+            decoded = b''
+        if (h.get('upgrade', '').lower() != 'websocket' or
+            'upgrade' not in h.get('connection', '').lower() or
+            h.get('sec-websocket-version') != '13' or len(decoded) != 16):
+            await send_http_error(writer, '400 Bad Request', 'Invalid WebSocket handshake'); return
+        accept = base64.b64encode(hashlib.sha1((key + MAGIC).encode()).digest()).decode()
+        ssh_reader, ssh_writer = await asyncio.open_connection(TARGET_HOST, TARGET_PORT)
+        writer.write((f'HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n').encode())
+        await writer.drain()
+        log.info('WebSocket %s established; SSH target %s:%s', peer, TARGET_HOST, TARGET_PORT)
+        tasks = [asyncio.create_task(ws_to_ssh(reader, ssh_writer, writer)),
+                 asyncio.create_task(ssh_to_ws(ssh_reader, writer))]
+        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        for task in pending: task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        for task in done:
+            exc = task.exception()
+            if exc: log.info('connection %s ended: %s', peer, exc)
+    except (asyncio.IncompleteReadError, ConnectionError, asyncio.LimitOverrunError):
+        log.info('connection %s closed', peer)
+    except Exception as e:
+        log.warning('connection %s error: %s', peer, e)
+    finally:
+        if ssh_writer:
+            ssh_writer.close()
+            try: await ssh_writer.wait_closed()
+            except Exception: pass
+        writer.close()
+        try: await writer.wait_closed()
+        except Exception: pass
 
 async def main():
-    server = await asyncio.start_server(handle_client, LISTEN_HOST, LISTEN_PORT)
-    log.info(
-        "WS proxy jalan di %s:%s -> forward ke %s:%s",
-        LISTEN_HOST, LISTEN_PORT, TARGET_HOST, TARGET_PORT,
-    )
-    async with server:
-        await server.serve_forever()
+    server = await asyncio.start_server(handle, HOST, PORT, limit=MAX_FRAME + 65536)
+    log.info('listening %s:%s -> %s:%s', HOST, PORT, TARGET_HOST, TARGET_PORT)
+    async with server: await server.serve_forever()
 
-
-def handle_sigterm(*_):
-    sys.exit(0)
-
-
-if __name__ == "__main__":
-    signal.signal(signal.SIGTERM, handle_sigterm)
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        pass
+if __name__ == '__main__':
+    asyncio.run(main())

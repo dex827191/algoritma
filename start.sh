@@ -62,21 +62,8 @@ if [ -x /usr/local/bin/badvpn-udpgw ]; then
 fi
 
 # =================================================================
-# 3) Stunnel — SSL wrapper untuk SSH (127.0.0.1:2443 -> :22)
+# SSH hanya melalui WebSocket (tanpa stunnel dan tanpa mux/TCP proxy)
 # =================================================================
-cat > /etc/stunnel/stunnel.conf <<EOF
-pid = /tmp/stunnel.pid
-foreground = yes
-client = no
-[ssh-tls]
-accept = 127.0.0.1:2443
-connect = 127.0.0.1:22
-cert = /etc/stunnel/stunnel.pem
-EOF
-STUNNEL_BIN="$(command -v stunnel4 || command -v stunnel)"
-echo "[*] Starting stunnel on 127.0.0.1:2443 -> dropbear:22"
-"$STUNNEL_BIN" /etc/stunnel/stunnel.conf &
-
 # =================================================================
 # 4) ws-proxy — WebSocket <-> SSH (127.0.0.1:8880 -> :22)
 # =================================================================
@@ -104,17 +91,7 @@ echo "[*] Starting ws-xray on 0.0.0.0:8882 -> nginx:8080"
 WS_XRAY_PORT=8882 NGINX_HOST=127.0.0.1 NGINX_PORT=8080 \
   python3 /app/ws-xray.py &
 
-# =================================================================
-# 8) mux — pintu masuk TCP mentah khusus SSH (0.0.0.0:8881)
-#    TLS  -> stunnel:2443 -> dropbear:22
-#    non-TLS -> ws-proxy:8880 -> dropbear:22
-#    Port ini terpisah dari HTTP origin Cloudflare :8080.
-# =================================================================
-echo "[*] Starting mux on 0.0.0.0:8881 (SSH raw TCP entry)"
-MAIN_MUX_PORT=8881 \
-  SSL_TARGET_HOST=127.0.0.1 SSL_TARGET_PORT=2443 \
-  WS_TARGET_HOST=127.0.0.1 WS_TARGET_PORT=8880 \
-  python3 /app/mux.py &
+# Tidak menjalankan mux.py atau stunnel: Railway deployment ini memakai SSH WebSocket saja.
 
 # =================================================================
 # 9) Cloudflare Tunnel (jika token tersedia)
@@ -132,7 +109,7 @@ sleep 2
 # =================================================================
 # 10) Nginx — HTTP entry utama (0.0.0.0:8080)
 #     Cloudflare Tunnel diarahkan ke sini. /ssh -> ws-proxy; path Xray tetap.
-#     SSH SSL tidak lewat Nginx; gunakan TCP ingress ke mux:8881.
+#     SSH hanya melalui WebSocket /ssh; tidak ada listener TCP SSL/mux.
 # =================================================================
 echo "[*] Starting nginx on 0.0.0.0:8080 (main HTTP entry)"
 exec nginx -c /app/nginx.conf -g 'daemon off;'
