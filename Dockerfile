@@ -2,7 +2,7 @@ FROM debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl wget unzip cmake build-essential nginx python3 procps dropbear stunnel4 openssl sudo passwd \
+    ca-certificates curl wget unzip cmake build-essential nginx python3 procps dropbear stunnel4 openssl sudo passwd speedtest-cli \
     && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL -o /tmp/xray.zip https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip \
     && unzip /tmp/xray.zip xray -d /usr/local/bin/ \
@@ -27,10 +27,7 @@ RUN wget -q \
     && chmod +x /usr/local/bin/badvpn-udpgw \
     && rm -rf /tmp/badvpn-1.999.130 /tmp/badvpn.tar.gz
 
-# Install official Ookla Speedtest CLI for the panel's speed test feature.
-RUN curl -fsSL https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | bash \
-    && apt-get update && apt-get install -y --no-install-recommends speedtest \
-    && rm -rf /var/lib/apt/lists/*
+# Speedtest CLI from Debian repositories (avoids external Packagecloud repository setup).
 
 RUN curl -fsSL -o /usr/local/bin/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
     && chmod +x /usr/local/bin/cloudflared

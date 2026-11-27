@@ -16,18 +16,33 @@ XRAY_PATHS = (
 UI_EXACT_PATHS = {"/", "/index.html", "/__info"}
 UI_API_PREFIX = "/api/"
 
-# Respons decoy untuk semua path selain Xray & UI
+# Respons decoy HTML untuk semua path selain Xray & UI
+DECOY_BODY = ("""<p style="text-align:center;"><b>
+<font color="#800080">▬</font><font color="#8A2BE2">▬</font><font color="#9370DB">▬</font><font color="#7B68EE">▬</font><font color="#7B68EE">▬ஜ۩۞۩ஜ▬</font><font color="#7B68EE">▬</font><font color="#9370DB">▬</font><font color="#8A2BE2">▬</font><font color="#800080">▬</font><br>
+<font color="#800080">─── SERVER PREMIUM ───</font><br>
+<font color="#8A2BE2">! TERM OF SERVICE !</font><br>
+<font color="#9370DB">NO MULTI LOGIN</font><br>
+<font color="#9370DB">NO TORRENT</font><br>
+<font color="#8A2BE2">NO SPAM, NO DDOS</font><br>
+<font color="#7B68EE">NO HACKING AND CARDING</font><br>
+<font color="#800080">NO 18+DOSA TANGGUNG SENDIRI</font><br>
+<font color="#800080">▬</font><font color="#8A2BE2">▬</font><font color="#9370DB">▬</font><font color="#7B68EE">▬</font><font color="#7B68EE">▬ஜ۩۞۩ஜ▬</font><font color="#7B68EE">▬</font><font color="#9370DB">▬</font><font color="#8A2BE2">▬</font><font color="#800080">▬</font><br>
+</b></p>
+""").encode("utf-8")
+
 DECOY_KEEPALIVE = (
     b"HTTP/1.1 200 OK\r\n"
-    b"Content-Length: 0\r\n"
+    b"Content-Type: text/html; charset=utf-8\r\n"
+    b"Content-Length: " + str(len(DECOY_BODY)).encode("ascii") + b"\r\n"
     b"Connection: keep-alive\r\n"
-    b"\r\n"
+    b"\r\n" + DECOY_BODY
 )
 DECOY_CLOSE = (
     b"HTTP/1.1 200 OK\r\n"
-    b"Content-Length: 0\r\n"
+    b"Content-Type: text/html; charset=utf-8\r\n"
+    b"Content-Length: " + str(len(DECOY_BODY)).encode("ascii") + b"\r\n"
     b"Connection: close\r\n"
-    b"\r\n"
+    b"\r\n" + DECOY_BODY
 )
 
 

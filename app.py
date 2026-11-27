@@ -1118,7 +1118,7 @@ class Handler(BaseHTTPRequestHandler):
             if path in ("/", "/index.html"):
                 self.send_html(INDEX_HTML)
             elif path == "/api/speedtest/status":
-                self.send_json({"status":"success","available":shutil.which("speedtest") is not None})
+                self.send_json({"status":"success","available":(shutil.which("speedtest") is not None or shutil.which("speedtest-cli") is not None)})
             elif path == "/api/list":
                 self.send_json({"status": "success", "users": list_ssh_users()})
             elif path == "/api/xray/list":
@@ -1148,14 +1148,30 @@ class Handler(BaseHTTPRequestHandler):
             data = self.read_body()
 
             if path == "/api/speedtest":
-                binary = shutil.which("speedtest")
-                if not binary:
-                    raise ValueError("Speedtest CLI resmi belum terpasang di server.")
-                proc = subprocess.run([binary, "--accept-license", "--accept-gdpr", "--format=json"],
-                    capture_output=True, text=True, timeout=120)
-                if proc.returncode != 0:
-                    raise ValueError((proc.stderr or proc.stdout or "Speedtest gagal.")[-1000:])
-                result = json.loads(proc.stdout)
+                official = shutil.which("speedtest")
+                fallback = shutil.which("speedtest-cli")
+                if official:
+                    proc = subprocess.run([official, "--accept-license", "--accept-gdpr", "--format=json"],
+                        capture_output=True, text=True, timeout=120)
+                    if proc.returncode != 0:
+                        raise ValueError((proc.stderr or proc.stdout or "Speedtest gagal.")[-1000:])
+                    result = json.loads(proc.stdout)
+                elif fallback:
+                    proc = subprocess.run([fallback, "--json"], capture_output=True, text=True, timeout=120)
+                    if proc.returncode != 0:
+                        raise ValueError((proc.stderr or proc.stdout or "Speedtest gagal.")[-1000:])
+                    raw = json.loads(proc.stdout)
+                    # Normalize speedtest-cli (Python) output to the UI's Ookla-like schema.
+                    result = {
+                        "download": {"bandwidth": int(raw.get("download", 0) / 8)},
+                        "upload": {"bandwidth": int(raw.get("upload", 0) / 8)},
+                        "ping": {"latency": raw.get("ping"), "jitter": None},
+                        "server": {"name": raw.get("server", {}).get("name", "-"),
+                                   "location": raw.get("server", {}).get("country", "")},
+                        "isp": raw.get("client", {}).get("isp", "-"),
+                    }
+                else:
+                    raise ValueError("Speedtest CLI belum terpasang di server.")
                 self.send_json({"status":"success","result":result})
 
             elif path == "/api/add":
