@@ -1,47 +1,144 @@
-FROM debian:bookworm-slim
+
+# ============================================================
+# BASE IMAGE - AMD64
+# ============================================================
+
+FROM --platform=linux/amd64 debian:bookworm-slim
+
 ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
 WORKDIR /app
 
-# ---- Base dependencies (build tools + library untuk BadVPN) ----
+# ============================================================
+# SYSTEM DEPENDENCIES
+# ============================================================
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl wget unzip nginx python3 procps \
-    dropbear-bin stunnel4 openssl sudo passwd \
-    iproute2 util-linux \
-    build-essential cmake make gcc g++ pkg-config \
-    libssl-dev libnspr4-dev zlib1g-dev \
+    ca-certificates \
+    curl \
+    wget \
+    unzip \
+    nginx \
+    python3 \
+    procps \
+    dropbear-bin \
+    stunnel4 \
+    openssl \
+    sudo \
+    passwd \
+    iproute2 \
+    util-linux \
+    file \
+    build-essential \
+    cmake \
+    make \
+    gcc \
+    g++ \
+    pkg-config \
+    libssl-dev \
+    libnspr4-dev \
+    zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# ---- Build badvpn udpgw (fix: binary ada di build/udpgw/) ----
-RUN wget -q https://github.com/ambrop72/badvpn/archive/refs/tags/1.999.130.tar.gz -O /tmp/badvpn.tar.gz \
- && tar -xzf /tmp/badvpn.tar.gz -C /tmp \
- && cd /tmp/badvpn-1.999.130 \
- && mkdir build && cd build \
- && cmake .. \
-      -DBUILD_NOTHING_BY_DEFAULT=1 \
-      -DBUILD_UDPGW=1 \
-      -DCMAKE_INSTALL_PREFIX=/usr/local \
- && cmake --build . --target badvpn-udpgw -j"$(nproc)" \
- && find /tmp/badvpn-1.999.130/build -type f -name badvpn-udpgw -exec cp {} /usr/local/bin/ \; \
- && chmod +x /usr/local/bin/badvpn-udpgw \
- && rm -rf /tmp/badvpn-1.999.130 /tmp/badvpn.tar.gz
+# ============================================================
+# BUILD BADVPN UDPGW
+# ============================================================
 
-# ---- Xray ----
-RUN curl -fsSL -o /tmp/xray.zip https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip \
- && unzip /tmp/xray.zip xray -d /usr/local/bin/ \
- && chmod +x /usr/local/bin/xray && rm -f /tmp/xray.zip
+RUN wget -q \
+    https://github.com/ambrop72/badvpn/archive/refs/tags/1.999.130.tar.gz \
+    -O /tmp/badvpn.tar.gz \
+    && tar -xzf /tmp/badvpn.tar.gz -C /tmp \
+    && cd /tmp/badvpn-1.999.130 \
+    && mkdir build \
+    && cd build \
+    && cmake .. \
+        -DBUILD_NOTHING_BY_DEFAULT=1 \
+        -DBUILD_UDPGW=1 \
+        -DCMAKE_INSTALL_PREFIX=/usr/local \
+    && cmake --build . \
+        --target badvpn-udpgw \
+        -j"$(nproc)" \
+    && find /tmp/badvpn-1.999.130/build \
+        -type f \
+        -name badvpn-udpgw \
+        -exec cp {} /usr/local/bin/badvpn-udpgw \; \
+    && chmod +x /usr/local/bin/badvpn-udpgw \
+    && rm -rf /tmp/badvpn-1.999.130 /tmp/badvpn.tar.gz
 
-# ---- Cloudflared ----
-RUN curl -fsSL -o /usr/local/bin/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
- && chmod +x /usr/local/bin/cloudflared
+# ============================================================
+# INSTALL XRAY CORE - AMD64
+# ============================================================
 
-# ---- App files ----
+RUN curl -fSL --retry 3 \
+    https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip \
+    -o /tmp/xray.zip \
+    && unzip -o /tmp/xray.zip xray -d /usr/local/bin/ \
+    && chmod 755 /usr/local/bin/xray \
+    && rm -f /tmp/xray.zip
+
+# ============================================================
+# INSTALL CLOUDFLARED - AMD64
+# ============================================================
+
+RUN curl -fSL --retry 3 \
+    https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+    -o /usr/local/bin/cloudflared \
+    && chmod 755 /usr/local/bin/cloudflared
+
+# ============================================================
+# COPY PROJECT FILES
+# ============================================================
+
 COPY . /app/
-RUN chmod +x /app/start.sh \
- && mkdir -p /var/run/dropbear /var/run/stunnel /etc/dropbear /etc/stunnel /etc/ssh-sni
 
-# ---- Expose HANYA port publik ----
-# 8080 = proxy_wrapper.py (gateway: UI panel + Xray paths)
-# 8081 = mux.py (SSH TCP + TLS publik)
-EXPOSE 8080 8081
+# ============================================================
+# PREPARE DIRECTORIES AND PERMISSIONS
+# ============================================================
 
-CMD ["/app/start.sh"]
+RUN chmod 755 /app/start.sh \
+    && mkdir -p \
+        /var/run/dropbear \
+        /var/run/stunnel \
+        /var/log \
+        /etc/dropbear \
+        /etc/stunnel \
+        /etc/ssh-sni \
+        /var/cache/nginx \
+        /var/lib/nginx \
+    && chmod 755 /usr/local/bin/xray \
+    && chmod 755 /usr/local/bin/cloudflared \
+    && chmod 755 /usr/local/bin/badvpn-udpgw
+
+# ============================================================
+# VERIFY EXECUTABLE FORMATS
+# ============================================================
+
+RUN echo "===== VERIFY ARCHITECTURE =====" \
+    && uname -m \
+    && file /usr/local/bin/xray \
+    && file /usr/local/bin/cloudflared \
+    && file /usr/local/bin/badvpn-udpgw \
+    && /usr/local/bin/xray version \
+    && /usr/local/bin/cloudflared --version
+
+# ============================================================
+# PUBLIC PORTS
+# ============================================================
+
+# 8080 = Railway HTTP gateway / UI / Xray
+# 8081 = SSH Mux
+# 8880 = SSH WebSocket
+# 7300 = UDPGW
+
+EXPOSE 8080
+EXPOSE 8081
+EXPOSE 8880
+EXPOSE 7300/udp
+
+# ============================================================
+# START APPLICATION
+# ============================================================
+
+CMD ["/bin/bash", "/app/start.sh"]
