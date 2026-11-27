@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-# UI + Xray reverse proxy: public/local port 8080.
+# UI app listens on APP_PORT=2053; Xray ingress has its own XRAY_PROXY_PORT.
 nginx -c /app/nginx.conf
 
 # Xray is owned only by proxy_wrapper.py; SSH never passes through it.
@@ -18,7 +18,7 @@ XRAY_PID=$!
 python3 /app/app.py &
 APP_PID=$!
 
-# SSH backend: Dropbear -> WebSocket proxy -> TCP mux on 8081.
+# SSH backend: Dropbear -> WebSocket proxy -> TCP mux on SSH_PORT (ENV).
 mkdir -p /etc/dropbear /etc/stunnel /etc/ssh-sni /var/run/stunnel
 cat > /etc/dropbear/banner <<'BANNER'
 =================================================
@@ -53,7 +53,7 @@ WS_PORT=8880 WS_TARGET_HOST=127.0.0.1 WS_TARGET_PORT=22 \
   python3 /app/ws-proxy.py &
 
 # SSH mux has its own listener; this does not change proxy_wrapper.py's Xray port.
-MAIN_MUX_PORT=8081 \
+SSH_PORT="${SSH_PORT:-8081}" \
 SSL_TARGET_HOST=127.0.0.1 SSL_TARGET_PORT=2443 \
 WS_MUX_TARGET_HOST=127.0.0.1 WS_MUX_TARGET_PORT=8880 \
   python3 /app/mux.py &
@@ -64,5 +64,5 @@ if [ -n "${CF_TOKEN:-}" ]; then
 fi
 
 trap 'kill "$XRAY_PID" "$APP_PID" 2>/dev/null || true; exit 0' INT TERM
-# Keep the Xray/UI ingress process in foreground.
-exec python3 /app/proxy_wrapper.py
+# Keep the Xray ingress process in foreground; UI requests are forwarded to nginx -> app.py.
+XRAY_PROXY_PORT="${XRAY_PROXY_PORT:-8080}" python3 /app/proxy_wrapper.py

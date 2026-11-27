@@ -14,7 +14,7 @@ import signal
 import sys
 
 LISTEN_HOST = "0.0.0.0"
-LISTEN_PORT = int(os.environ.get("MAIN_MUX_PORT", os.environ.get("PORT", "443")))
+LISTEN_PORT = int(os.environ.get("SSH_PORT", os.environ.get("MAIN_MUX_PORT", "8081")))
 
 SSL_TARGET_HOST = os.environ.get("SSL_TARGET_HOST", "127.0.0.1")
 SSL_TARGET_PORT = int(os.environ.get("SSL_TARGET_PORT", "2443"))  # stunnel internal

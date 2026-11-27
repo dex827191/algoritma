@@ -12,5 +12,5 @@ RUN curl -fsSL -o /usr/local/bin/cloudflared https://github.com/cloudflare/cloud
 COPY . /app/
 RUN chmod +x /app/start.sh \
     && mkdir -p /var/run/dropbear /var/run/stunnel /etc/dropbear /etc/stunnel /etc/ssh-sni
-EXPOSE 8080 8081
+EXPOSE 2053 8080 8081
 CMD ["/app/start.sh"]
