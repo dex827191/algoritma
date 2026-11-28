@@ -48,10 +48,21 @@ DOMAIN_STATE = {"domain": "", "updated_at": None}
 # ---------------------------------------------------------------------------
 
 INDEX_HTML = """<!doctype html>
-<html lang="id">
+<html lang="id" data-theme="light">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#7c3aed"><title>Server Panel • Modern Console</title>
+<script>
+(function(){
+  try{
+    var t = localStorage.getItem('panel-theme');
+    if(t !== 'dark' && t !== 'light') t = 'light';
+    document.documentElement.setAttribute('data-theme', t);
+    var m = document.querySelector('meta[name="theme-color"]');
+    if(m) m.setAttribute('content', t === 'dark' ? '#1a1525' : '#7c3aed');
+  }catch(e){}
+})();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="preload" href="https://i.ibb.co.com/M0N8h0C/takina.webp" as="image">
@@ -406,6 +417,128 @@ tbody tr:last-child td{border-bottom:0}
   .page-head{flex-direction:column}
   .traffic{gap:8px}
 }
+
+/* ===== Theme switch: smooth transition ===== */
+html,body,.card,.stat,.field input,.field select,.field textarea,.sidebar,.topbar,
+.output,.notice,.tablewrap,.linkbox,.modalbox,.chip,.btn{
+  transition:background-color .3s ease, color .3s ease, border-color .3s ease,
+             box-shadow .3s ease, background .3s ease;
+}
+
+/* Tombol theme toggle */
+.theme-toggle{
+  width:42px;height:42px;padding:0;border-radius:50%;
+  background:var(--surface-3);border:1px solid var(--border-2);
+  font-size:17px;display:inline-flex;align-items:center;justify-content:center;
+  transition:transform .25s ease, background .25s ease, border-color .25s ease;
+  flex-shrink:0;
+}
+.theme-toggle:hover{
+  background:var(--surface-2);
+  border-color:var(--primary);
+  transform:rotate(20deg) scale(1.05);
+}
+
+/* ===== DARK MODE ===== */
+[data-theme="dark"]{
+  color-scheme:dark;
+  --primary:#a855f7;
+  --primary-2:#c084fc;
+  --primary-3:#818cf8;
+  --accent:#22d3ee;
+  --surface:#1a1525;
+  --surface-2:#221b30;
+  --surface-3:#2a2238;
+  --text:#f0ecff;
+  --muted:#a098c0;
+  --grid:rgba(168,85,247,.06);
+  --line:rgba(168,85,247,.18);
+  --line-strong:rgba(168,85,247,.32);
+  --border:rgba(168,85,247,.14);
+  --border-2:rgba(168,85,247,.22);
+  --success:#34d399;
+  --success-bg:#064e3b;
+  --success-text:#6ee7b7;
+  --shadow:0 4px 24px rgba(0,0,0,.45),0 1px 3px rgba(0,0,0,.3);
+  --shadow-lg:0 24px 56px rgba(0,0,0,.6),0 4px 12px rgba(0,0,0,.4);
+  --gradient:linear-gradient(135deg,#9333ea 0%,#6366f1 50%,#06b6d4 100%);
+  --gradient-soft:linear-gradient(135deg,rgba(168,85,247,.15) 0%,rgba(6,182,212,.12) 100%);
+}
+[data-theme="dark"] body{
+  background-color:#0d0918;
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px),
+    radial-gradient(1200px 800px at 100% -10%,rgba(168,85,247,.22),transparent 60%),
+    radial-gradient(900px 600px at -10% 100%,rgba(6,182,212,.16),transparent 60%);
+}
+[data-theme="dark"] .sidebar{
+  background:rgba(26,21,37,.85);
+  box-shadow:1px 0 0 rgba(255,255,255,.02), inset -1px 0 0 rgba(168,85,247,.08);
+}
+[data-theme="dark"] .topbar{
+  background:rgba(26,21,37,.78);
+  box-shadow:0 1px 0 rgba(168,85,247,.08), 0 4px 24px rgba(0,0,0,.3);
+}
+[data-theme="dark"] .card{
+  background:rgba(34,27,48,.85);
+}
+[data-theme="dark"] .stat{
+  background:linear-gradient(135deg,rgba(34,27,48,1),rgba(42,34,56,.7));
+}
+[data-theme="dark"] .stat::before{
+  background-image:repeating-linear-gradient(0deg,rgba(168,85,247,.04) 0 1px,transparent 1px 4px);
+}
+[data-theme="dark"] .field input,
+[data-theme="dark"] .field select,
+[data-theme="dark"] .field textarea{
+  background:#181223;
+  color:#f0ecff;
+}
+[data-theme="dark"] .field input:focus,
+[data-theme="dark"] .field select:focus,
+[data-theme="dark"] .field textarea:focus{
+  background:#221b30;
+}
+[data-theme="dark"] .output{
+  background:linear-gradient(135deg,#181223 0%,#0d1a1f 100%);
+  color:#e0dcf0;
+}
+[data-theme="dark"] .notice{
+  color:#d8d0ee;
+}
+[data-theme="dark"] .tablewrap{
+  background:rgba(26,21,37,.6);
+}
+[data-theme="dark"] th{ background:var(--surface-2); }
+[data-theme="dark"] tbody tr:hover{ background:#221b30; }
+[data-theme="dark"] .tonal{ background:#2a2238; }
+[data-theme="dark"] .tonal:hover{ background:#332a44; }
+[data-theme="dark"] .outlined:hover{ background:#2a2238; }
+[data-theme="dark"] .textbtn:hover{ background:#2a2238; color:#f0ecff; }
+[data-theme="dark"] .danger{
+  background:#4c1d24; color:#fca5a5; border-color:#7f1d1d;
+}
+[data-theme="dark"] .danger:hover{ background:#7f1d1d; }
+[data-theme="dark"] .modalbox{ background:var(--surface); }
+[data-theme="dark"] .modal{ background:rgba(0,0,0,.78); }
+[data-theme="dark"] .page-head h1{
+  background:linear-gradient(135deg,#f0ecff 30%,#c084fc 100%);
+  -webkit-background-clip:text; background-clip:text;
+  -webkit-text-fill-color:transparent;
+}
+[data-theme="dark"] .brandmark::after{
+  border-color:rgba(168,85,247,.4);
+}
+[data-theme="dark"] .empty::before{ color:var(--line-strong); }
+[data-theme="dark"] .swal2-popup,
+[data-theme="dark"] .swal2-toast{
+  background:#221b30 !important;
+  color:#f0ecff !important;
+  border-color:rgba(168,85,247,.25) !important;
+}
+[data-theme="dark"] .swal2-title{ color:#f0ecff !important; }
+[data-theme="dark"] .swal2-html-container{ color:#a098c0 !important; }
 </style></head>
 <body>
 <div class="app">
@@ -429,7 +562,11 @@ tbody tr:last-child td{border-bottom:0}
       <button class="btn textbtn hamb" onclick="toggleNav(true)">☰</button>
       <h2 id="topTitle">Dashboard</h2>
     </div>
-    <div class="top-actions"><span class="chip good" id="serverState">● Connecting</span></div>
+    <div class="top-actions">
+      <span class="chip good" id="serverState">● Connecting</span>
+      <button class="btn theme-toggle" onclick="toggleTheme()" id="themeToggle"
+              title="Ganti tema" aria-label="Ganti tema">🌙</button>
+    </div>
   </header>
   <main class="content" id="view"></main>
 </div></div>
@@ -455,6 +592,21 @@ tbody tr:last-child td{border-bottom:0}
 const $=id=>document.getElementById(id);
 let stats=null,trafficStats=null,serverInfo=null,currentPage='dashboard',sshUsers=[],xrayAccounts=[],detailText='';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+// -------------------- Theme switch --------------------
+function applyTheme(theme){
+  if(theme !== 'dark' && theme !== 'light') theme = 'light';
+  document.documentElement.setAttribute('data-theme', theme);
+  const btn = document.getElementById('themeToggle');
+  if(btn) btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+  const m = document.querySelector('meta[name="theme-color"]');
+  if(m) m.setAttribute('content', theme === 'dark' ? '#1a1525' : '#7c3aed');
+  try{ localStorage.setItem('panel-theme', theme); }catch(e){}
+}
+function toggleTheme(){
+  const cur = document.documentElement.getAttribute('data-theme') || 'light';
+  applyTheme(cur === 'dark' ? 'light' : 'dark');
+}
 
 // -------------------- SweetAlert2 toast wrapper --------------------
 function toast(msg,type=''){
@@ -797,6 +949,9 @@ function initSakana(){
 }
 
 (async()=>{
+  // Sinkronkan tombol tema saat start
+  applyTheme(document.documentElement.getAttribute('data-theme') || 'light');
+
   await loadInfo();
   await loadStats();
   await loadTraffic();
